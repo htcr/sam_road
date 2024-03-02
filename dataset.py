@@ -4,7 +4,6 @@ from torch.utils.data import Dataset
 import cv2
 
 IMAGE_SIZE = 2048
-PATCH_SIZE = 128
 SAMPLE_MARGIN = 64
 EVAL_STEPS = 32
 
@@ -14,7 +13,8 @@ def read_rgb_img(path):
     return rgb
 
 class CityScaleDataset(Dataset):
-    def __init__(self, is_train):
+    def __init__(self, config, is_train):
+        self.config = config
         rgb_pattern = './cityscale/20cities/region_{}_sat.png'
         keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
         road_mask_pattern = './cityscale/processed/road_mask_{}.png'
@@ -40,7 +40,7 @@ class CityScaleDataset(Dataset):
             
         
         self.sample_min = SAMPLE_MARGIN
-        self.sample_max = IMAGE_SIZE - (PATCH_SIZE + SAMPLE_MARGIN)
+        self.sample_max = IMAGE_SIZE - (self.config.PATCH_SIZE + SAMPLE_MARGIN)
 
         eval_samples = np.linspace(start=self.sample_min, stop=self.sample_max, num=EVAL_STEPS)
         eval_samples = [round(x) for x in eval_samples]
@@ -48,7 +48,9 @@ class CityScaleDataset(Dataset):
         for i in range(len(test_split)):
             for x in eval_samples:
                 for y in eval_samples:
-                    self.eval_patches.append(i, (x, y), (x + PATCH_SIZE, y + PATCH_SIZE))
+                    self.eval_patches.append(
+                        (i, (x, y), (x + self.config.PATCH_SIZE, y + self.config.PATCH_SIZE))
+                    )
         
 
     def data_partition(self):
@@ -73,7 +75,7 @@ class CityScaleDataset(Dataset):
 
     def __len__(self):
         if self.is_train:
-            return 1000000
+            return 100 * 1000
         else:
             return len(self.eval_patches)
 
@@ -82,7 +84,7 @@ class CityScaleDataset(Dataset):
             img_idx = np.random.randint(low=0, high=len(self.rgbs))
             begin_x = np.random.randint(low=self.sample_min, high=self.sample_max+1)
             begin_y = np.random.randint(low=self.sample_min, high=self.sample_max+1)
-            end_x, end_y = begin_x + PATCH_SIZE, begin_y + PATCH_SIZE
+            end_x, end_y = begin_x + self.config.PATCH_SIZE, begin_y + self.config.PATCH_SIZE
         else:
             # Returns eval patch
             img_idx, (begin_x, begin_y), (end_x, end_y) = self.eval_patches[idx]
@@ -98,4 +100,6 @@ class CityScaleDataset(Dataset):
             keypoint_mask_patch = np.rot90(keypoint_mask_patch, rot_index, [0, 1]).copy()
             road_mask_patch = np.rot90(road_mask_patch, rot_index, [0, 1]).copy()
         
-        return torch.tensor(rgb_patch), torch.tensor(keypoint_mask_patch), torch.tensor(road_mask_patch)
+        # rgb: [H, W, 3] 0-255
+        # masks: [H, W] 0-1
+        return torch.tensor(rgb_patch, dtype=torch.float32), torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0, torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0
