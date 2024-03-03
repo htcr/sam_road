@@ -15,6 +15,7 @@ from sam.segment_anything.modeling.image_encoder import ImageEncoderViT
 from sam.segment_anything.modeling.common import LayerNorm2d
 
 import wandb
+import pprint
 
 
 class SAMRoad(pl.LightningModule):
@@ -22,6 +23,8 @@ class SAMRoad(pl.LightningModule):
 
     def __init__(self, config):
         super().__init__()
+        self.config = config
+
         ### SAM config (B)
         encoder_embed_dim=768
         encoder_depth=12
@@ -72,10 +75,20 @@ class SAMRoad(pl.LightningModule):
 
         with open(config.SAM_CKPT_PATH, "rb") as f:
             state_dict = torch.load(f)
+            
+            matched_names = []
+            mismatch_names = []
+            for k, v in self.named_parameters():
+                if k in state_dict and v.shape == state_dict[k].shape:
+                    matched_names.append(k)
+                else:
+                    mismatch_names.append(k)
+            print("###### Matched params ######")
+            pprint.pprint(matched_names)
+            print("###### Mismatched params ######")
+            pprint.pprint(mismatch_names)
+
             self.load_state_dict(state_dict, strict=False)
-        # self.image_encoder.freeze()
-        for param in self.image_encoder.parameters():
-            param.requires_grad = False
 
     
     def forward(self, rgb):
@@ -143,56 +156,22 @@ class SAMRoad(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        param_dicts = []
+        if not self.config.FREEZE_ENCODER:
+            encoder_params = {
+                'params': self.image_encoder.parameters(),
+                'lr': self.config.BASE_LR * self.config.ENCODER_LR_FACTOR,
+            }
+            param_dicts.append(encoder_params)
+        decoder_params = {
+            'params': self.map_decoder.parameters(),
+            'lr': self.config.BASE_LR
+        }
+        param_dicts.append(decoder_params)
+        
+        optimizer = torch.optim.Adam(param_dicts, lr=self.config.BASE_LR)
         return optimizer
 
-        config = self.config
-
-        def match_name_keywords(n, name_keywords):
-            out = False
-            for b in name_keywords:
-                if b in n:
-                    out = True
-                    break
-            return out
-
-        param_dicts = [
-            {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if not match_name_keywords(n, ["encoder.0"])
-                    and not match_name_keywords(
-                        n, ["reference_points", "sampling_offsets"]
-                    )
-                    and p.requires_grad
-                ],
-                "lr": float(config.TRAIN.LR),
-            },
-            {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if match_name_keywords(n, ["encoder.0"]) and p.requires_grad
-                ],
-                "lr": float(config.TRAIN.LR_BACKBONE),
-            },
-            {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if match_name_keywords(n, ["reference_points", "sampling_offsets"])
-                    and p.requires_grad
-                ],
-                "lr": float(config.TRAIN.LR) * 0.1,
-            },
-        ]
-
-        optimizer = torch.optim.AdamW(
-            param_dicts,
-            lr=float(config.TRAIN.LR),
-            weight_decay=float(config.TRAIN.WEIGHT_DECAY),
-        )
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, config.TRAIN.LR_DROP)
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
 
