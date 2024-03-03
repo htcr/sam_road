@@ -14,6 +14,7 @@ import lightning.pytorch as pl
 from sam.segment_anything.modeling.image_encoder import ImageEncoderViT
 from sam.segment_anything.modeling.common import LayerNorm2d
 
+import wandb
 
 
 class SAMRoad(pl.LightningModule):
@@ -66,7 +67,8 @@ class SAMRoad(pl.LightningModule):
         )
 
         self.criterion = torch.nn.BCEWithLogitsLoss()
-        self.iou_metric = BinaryJaccardIndex()
+        self.keypoint_iou = BinaryJaccardIndex(threshold=0.5)
+        self.road_iou = BinaryJaccardIndex(threshold=0.5)
 
         with open(config.SAM_CKPT_PATH, "rb") as f:
             state_dict = torch.load(f)
@@ -100,7 +102,7 @@ class SAMRoad(pl.LightningModule):
 
         gt_masks = torch.stack([keypoint_mask, road_mask], dim=3)
         loss = self.criterion(logits, gt_masks)
-        self.log('train_loss', loss)
+        self.log('train_loss', loss, on_step=True, on_epoch=False, prog_bar=True)
         return loss
 
 
@@ -110,14 +112,38 @@ class SAMRoad(pl.LightningModule):
         # [B, H, W, 2]
         logits, scores = self(rgb)
 
-        keypoint_iou = self.iou_metric(scores[..., 0], keypoint_mask)
-        road_iou = self.iou_metric(scores[..., 1], road_mask)
+        gt_masks = torch.stack([keypoint_mask, road_mask], dim=3)
+        val_loss = self.criterion(logits, gt_masks)
+        self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        # Log images
+        if batch_idx == 0:
+            max_viz_num = 4
+            viz_rgb = rgb[:max_viz_num, :, :]
+            viz_pred_keypoint = scores[:max_viz_num, :, :, 0]
+            viz_pred_road = scores[:max_viz_num, :, :, 1]
+            viz_gt_keypoint = keypoint_mask[:max_viz_num, ...]
+            viz_gt_road = road_mask[:max_viz_num, ...]
+            
+            columns = ['rgb', 'gt_keypoint', 'gt_road', 'pred_keypoint', 'pred_road']
+            data = [[wandb.Image(x.cpu().numpy()) for x in row] for row in list(zip(viz_rgb, viz_gt_keypoint, viz_gt_road, viz_pred_keypoint, viz_pred_road))]
+            self.logger.log_table(key='viz_table', columns=columns, data=data)
+            
+
+        self.keypoint_iou.update(scores[..., 0], keypoint_mask)
+        self.road_iou.update(scores[..., 1], road_mask)
+
+    def on_validation_epoch_end(self):
+        keypoint_iou = self.keypoint_iou.compute()
+        road_iou = self.road_iou.compute()
         self.log("keypoint_iou", keypoint_iou)
         self.log("road_iou", road_iou)
+        self.keypoint_iou.reset()
+        self.road_iou.reset()
 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
         config = self.config

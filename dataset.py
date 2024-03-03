@@ -2,10 +2,10 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import cv2
+import math
 
 IMAGE_SIZE = 2048
 SAMPLE_MARGIN = 64
-EVAL_STEPS = 32
 
 def read_rgb_img(path):
     bgr = cv2.imread(path)
@@ -42,7 +42,8 @@ class CityScaleDataset(Dataset):
         self.sample_min = SAMPLE_MARGIN
         self.sample_max = IMAGE_SIZE - (self.config.PATCH_SIZE + SAMPLE_MARGIN)
 
-        eval_samples = np.linspace(start=self.sample_min, stop=self.sample_max, num=EVAL_STEPS)
+        eval_patches_per_edge = math.ceil((IMAGE_SIZE - 2 * SAMPLE_MARGIN) / self.config.PATCH_SIZE)
+        eval_samples = np.linspace(start=self.sample_min, stop=self.sample_max, num=eval_patches_per_edge)
         eval_samples = [round(x) for x in eval_samples]
         self.eval_patches = []
         for i in range(len(test_split)):
@@ -75,7 +76,7 @@ class CityScaleDataset(Dataset):
 
     def __len__(self):
         if self.is_train:
-            return 100 * 1000
+            return 100
         else:
             return len(self.eval_patches)
 

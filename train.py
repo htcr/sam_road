@@ -126,7 +126,7 @@ if __name__ == "__main__":
         callbacks=[checkpoint_callback],
         logger=wandb_logger,
         fast_dev_run=args.fast_dev_run,
-        strategy='ddp_find_unused_parameters_true',
+        # strategy='ddp_find_unused_parameters_true',
         precision=args.precision,
         # profiler=profiler
         )
