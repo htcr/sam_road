@@ -35,6 +35,9 @@ parser.add_argument(
 parser.add_argument(
     "--fast_dev_run", default=False, action='store_true'
 )
+parser.add_argument(
+    "--dev_run", default=False, action='store_true'
+)
 
 def load_config(path):
     with open(path) as file:
@@ -52,7 +55,9 @@ if __name__ == "__main__":
         # set the wandb project where this run will be logged
         project="sam_road",
         # track hyperparameters and run metadata
-        config=config
+        config=config,
+        # disable wandb if debugging
+        mode='disabled' if (args.fast_dev_run or args.dev_run) else None
     )
 
 

@@ -18,6 +18,41 @@ import wandb
 import pprint
 
 
+class _LoRA_qkv(nn.Module):
+    """In Sam it is implemented as
+    self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+    B, N, C = x.shape
+    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+    q, k, v = qkv.unbind(0)
+    """
+
+    def __init__(
+            self,
+            qkv: nn.Module,
+            linear_a_q: nn.Module,
+            linear_b_q: nn.Module,
+            linear_a_v: nn.Module,
+            linear_b_v: nn.Module,
+    ):
+        super().__init__()
+        self.qkv = qkv
+        self.linear_a_q = linear_a_q
+        self.linear_b_q = linear_b_q
+        self.linear_a_v = linear_a_v
+        self.linear_b_v = linear_b_v
+        self.dim = qkv.in_features
+        self.w_identity = torch.eye(qkv.in_features)
+
+    def forward(self, x):
+        qkv = self.qkv(x)  # B,N,N,3*org_C
+        new_q = self.linear_b_q(self.linear_a_q(x))
+        new_v = self.linear_b_v(self.linear_a_v(x))
+        qkv[:, :, :, : self.dim] += new_q
+        qkv[:, :, :, -self.dim:] += new_v
+        return qkv
+
+
+
 class SAMRoad(pl.LightningModule):
     """This is the RelationFormer module that performs object detection"""
 
@@ -69,6 +104,53 @@ class SAMRoad(pl.LightningModule):
             activation(),
             nn.ConvTranspose2d(32, 2, kernel_size=2, stride=2),
         )
+
+        #### LORA
+        if config.ENCODER_LORA:
+            r = 4
+            lora_layer_selection = None
+            assert r > 0
+            if lora_layer_selection:
+                self.lora_layer_selection = lora_layer_selection
+            else:
+                self.lora_layer_selection = list(
+                    range(len(self.image_encoder.blocks)))  # Only apply lora to the image encoder by default
+            # create for storage, then we can init them or load weights
+            self.w_As = []  # These are linear layers
+            self.w_Bs = []
+
+            # lets freeze first
+            for param in self.image_encoder.parameters():
+                param.requires_grad = False
+
+            # Here, we do the surgery
+            for t_layer_i, blk in enumerate(self.image_encoder.blocks):
+                # If we only want few lora layer instead of all
+                if t_layer_i not in self.lora_layer_selection:
+                    continue
+                w_qkv_linear = blk.attn.qkv
+                dim = w_qkv_linear.in_features
+                w_a_linear_q = nn.Linear(dim, r, bias=False)
+                w_b_linear_q = nn.Linear(r, dim, bias=False)
+                w_a_linear_v = nn.Linear(dim, r, bias=False)
+                w_b_linear_v = nn.Linear(r, dim, bias=False)
+                self.w_As.append(w_a_linear_q)
+                self.w_Bs.append(w_b_linear_q)
+                self.w_As.append(w_a_linear_v)
+                self.w_Bs.append(w_b_linear_v)
+                blk.attn.qkv = _LoRA_qkv(
+                    w_qkv_linear,
+                    w_a_linear_q,
+                    w_b_linear_q,
+                    w_a_linear_v,
+                    w_b_linear_v,
+                )
+            # Init LoRA params
+            for w_A in self.w_As:
+                nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
+            for w_B in self.w_Bs:
+                nn.init.zeros_(w_B.weight)
+
 
         self.criterion = torch.nn.BCEWithLogitsLoss()
         self.keypoint_iou = BinaryJaccardIndex(threshold=0.5)
@@ -161,10 +243,17 @@ class SAMRoad(pl.LightningModule):
 
     def configure_optimizers(self):
         param_dicts = []
-        if not self.config.FREEZE_ENCODER:
+        if not self.config.FREEZE_ENCODER and not self.config.ENCODER_LORA:
             encoder_params = {
                 'params': [p for k, p in self.image_encoder.named_parameters() if k in self.matched_sam_param_names],
                 'lr': self.config.BASE_LR * self.config.ENCODER_LR_FACTOR,
+            }
+            param_dicts.append(encoder_params)
+        if self.config.ENCODER_LORA:
+            # LoRA params only
+            encoder_params = {
+                'params': [p for k, p in self.image_encoder.named_parameters() if 'qkv.linear_' in k],
+                'lr': self.config.BASE_LR,
             }
             param_dicts.append(encoder_params)
         decoder_params = {
