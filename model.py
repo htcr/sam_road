@@ -161,6 +161,11 @@ class SAMRoad(pl.LightningModule):
 
         with open(config.SAM_CKPT_PATH, "rb") as f:
             ckpt_state_dict = torch.load(f)
+
+            ## Resize pos embeddings, if needed
+            if image_size != 1024:
+                new_state_dict = self.resize_sam_pos_embed(ckpt_state_dict, image_size, vit_patch_size, encoder_global_attn_indexes)
+                ckpt_state_dict = new_state_dict
             
             matched_names = []
             mismatch_names = []
@@ -178,6 +183,27 @@ class SAMRoad(pl.LightningModule):
 
             self.matched_sam_param_names = set(matched_names)
             self.load_state_dict(state_dict_to_load, strict=False)
+
+    def resize_sam_pos_embed(self, state_dict, image_size, vit_patch_size, encoder_global_attn_indexes):
+        new_state_dict = {k : v for k, v in state_dict.items()}
+        pos_embed = new_state_dict['image_encoder.pos_embed']
+        token_size = int(image_size // vit_patch_size)
+        if pos_embed.shape[1] != token_size:
+            # Copied from SAMed
+            # resize pos embedding, which may sacrifice the performance, but I have no better idea
+            pos_embed = pos_embed.permute(0, 3, 1, 2)  # [b, c, h, w]
+            pos_embed = F.interpolate(pos_embed, (token_size, token_size), mode='bilinear', align_corners=False)
+            pos_embed = pos_embed.permute(0, 2, 3, 1)  # [b, h, w, c]
+            new_state_dict['image_encoder.pos_embed'] = pos_embed
+            rel_pos_keys = [k for k in state_dict.keys() if 'rel_pos' in k]
+            global_rel_pos_keys = [k for k in rel_pos_keys if any([str(i) in k for i in encoder_global_attn_indexes])]
+            for k in global_rel_pos_keys:
+                rel_pos_params = new_state_dict[k]
+                h, w = rel_pos_params.shape
+                rel_pos_params = rel_pos_params.unsqueeze(0).unsqueeze(0)
+                rel_pos_params = F.interpolate(rel_pos_params, (token_size * 2 - 1, w), mode='bilinear', align_corners=False)
+                new_state_dict[k] = rel_pos_params[0, 0, ...]
+        return new_state_dict
 
     
     def forward(self, rgb):
