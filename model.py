@@ -16,6 +16,7 @@ from sam.segment_anything.modeling.common import LayerNorm2d
 
 import wandb
 import pprint
+import torchvision
 
 
 class _LoRA_qkv(nn.Module):
@@ -151,8 +152,10 @@ class SAMRoad(pl.LightningModule):
             for w_B in self.w_Bs:
                 nn.init.zeros_(w_B.weight)
 
-
-        self.criterion = torch.nn.BCEWithLogitsLoss()
+        if self.config.FOCAL_LOSS:
+            self.criterion = partial(torchvision.ops.sigmoid_focal_loss, reduction='mean')
+        else:
+            self.criterion = torch.nn.functional.binary_cross_entropy_with_logits
         self.keypoint_iou = BinaryJaccardIndex(threshold=0.5)
         self.road_iou = BinaryJaccardIndex(threshold=0.5)
 
