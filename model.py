@@ -33,7 +33,8 @@ class SAMRoad(pl.LightningModule):
         ###
 
         prompt_embed_dim = 256
-        image_size = 1024
+        # SAM default is 1024
+        image_size = config.PATCH_SIZE
         vit_patch_size = 16
         image_embedding_size = image_size // vit_patch_size
 
@@ -74,13 +75,15 @@ class SAMRoad(pl.LightningModule):
         self.road_iou = BinaryJaccardIndex(threshold=0.5)
 
         with open(config.SAM_CKPT_PATH, "rb") as f:
-            state_dict = torch.load(f)
+            ckpt_state_dict = torch.load(f)
             
             matched_names = []
             mismatch_names = []
+            state_dict_to_load = {}
             for k, v in self.named_parameters():
-                if k in state_dict and v.shape == state_dict[k].shape:
+                if k in ckpt_state_dict and v.shape == ckpt_state_dict[k].shape:
                     matched_names.append(k)
+                    state_dict_to_load[k] = ckpt_state_dict[k]
                 else:
                     mismatch_names.append(k)
             print("###### Matched params ######")
@@ -88,7 +91,8 @@ class SAMRoad(pl.LightningModule):
             print("###### Mismatched params ######")
             pprint.pprint(mismatch_names)
 
-            self.load_state_dict(state_dict, strict=False)
+            self.matched_sam_param_names = set(matched_names)
+            self.load_state_dict(state_dict_to_load, strict=False)
 
     
     def forward(self, rgb):
@@ -159,7 +163,7 @@ class SAMRoad(pl.LightningModule):
         param_dicts = []
         if not self.config.FREEZE_ENCODER:
             encoder_params = {
-                'params': self.image_encoder.parameters(),
+                'params': [p for k, p in self.image_encoder.named_parameters() if k in self.matched_sam_param_names],
                 'lr': self.config.BASE_LR * self.config.ENCODER_LR_FACTOR,
             }
             param_dicts.append(encoder_params)

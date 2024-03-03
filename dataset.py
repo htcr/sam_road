@@ -76,7 +76,7 @@ class CityScaleDataset(Dataset):
 
     def __len__(self):
         if self.is_train:
-            return 10000
+            return (IMAGE_SIZE // self.config.PATCH_SIZE)**2 * 2500
         else:
             return len(self.eval_patches)
 
