@@ -76,7 +76,7 @@ class CityScaleDataset(Dataset):
 
     def __len__(self):
         if self.is_train:
-            return 100
+            return 10000
         else:
             return len(self.eval_patches)
 
