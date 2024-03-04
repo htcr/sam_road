@@ -12,6 +12,9 @@ from torchmetrics.classification import BinaryJaccardIndex
 
 import lightning.pytorch as pl
 from sam.segment_anything.modeling.image_encoder import ImageEncoderViT
+from sam.segment_anything.modeling.mask_decoder import MaskDecoder
+from sam.segment_anything.modeling.prompt_encoder import PromptEncoder
+from sam.segment_anything.modeling.transformer import TwoWayTransformer
 from sam.segment_anything.modeling.common import LayerNorm2d
 
 import wandb
@@ -36,7 +39,9 @@ class _LoRA_qkv(nn.Module):
             linear_b_v: nn.Module,
     ):
         super().__init__()
-        self.qkv = qkv
+        # self.qkv = qkv
+        self.weight = qkv.weight
+        self.bias = qkv.bias
         self.linear_a_q = linear_a_q
         self.linear_b_q = linear_b_q
         self.linear_a_v = linear_a_v
@@ -45,7 +50,8 @@ class _LoRA_qkv(nn.Module):
         self.w_identity = torch.eye(qkv.in_features)
 
     def forward(self, x):
-        qkv = self.qkv(x)  # B,N,N,3*org_C
+        # qkv = self.qkv(x)  # B,N,N,3*org_C
+        qkv = F.linear(x, self.weight, self.bias)
         new_q = self.linear_b_q(self.linear_a_q(x))
         new_v = self.linear_b_v(self.linear_a_v(x))
         qkv[:, :, :, : self.dim] += new_q
@@ -71,6 +77,7 @@ class SAMRoad(pl.LightningModule):
         prompt_embed_dim = 256
         # SAM default is 1024
         image_size = config.PATCH_SIZE
+        self.image_size = image_size
         vit_patch_size = 16
         image_embedding_size = image_size // vit_patch_size
 
@@ -94,17 +101,41 @@ class SAMRoad(pl.LightningModule):
             out_chans=prompt_embed_dim
         )
 
-        activation = nn.GELU
-        self.map_decoder = nn.Sequential(
-            nn.ConvTranspose2d(encoder_output_dim, 128, kernel_size=2, stride=2),
-            LayerNorm2d(128),
-            activation(),
-            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),
-            activation(),
-            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),
-            activation(),
-            nn.ConvTranspose2d(32, 2, kernel_size=2, stride=2),
-        )
+        #### Naive decoder
+        if self.config.USE_SAM_DECODER:
+            # Not used, just produce null embeddings
+            self.prompt_encoder=PromptEncoder(
+                embed_dim=prompt_embed_dim,
+                image_embedding_size=(image_embedding_size, image_embedding_size),
+                input_image_size=(image_size, image_size),
+                mask_in_chans=16,
+            )
+            for param in self.prompt_encoder.parameters():
+                param.requires_grad = False
+            self.mask_decoder=MaskDecoder(
+                num_multimask_outputs=2, # keypoint, road
+                transformer=TwoWayTransformer(
+                    depth=2,
+                    embedding_dim=prompt_embed_dim,
+                    mlp_dim=2048,
+                    num_heads=8,
+                ),
+                transformer_dim=prompt_embed_dim,
+                iou_head_depth=3,
+                iou_head_hidden_dim=256,
+            )
+        else:
+            activation = nn.GELU
+            self.map_decoder = nn.Sequential(
+                nn.ConvTranspose2d(encoder_output_dim, 128, kernel_size=2, stride=2),
+                LayerNorm2d(128),
+                activation(),
+                nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),
+                activation(),
+                nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),
+                activation(),
+                nn.ConvTranspose2d(32, 2, kernel_size=2, stride=2),
+            )
 
         #### LORA
         if config.ENCODER_LORA:
@@ -214,9 +245,28 @@ class SAMRoad(pl.LightningModule):
         x = (x - self.pixel_mean) / self.pixel_std
         # [B, D, h, w]
         image_embeddings = self.image_encoder(x)
-        # [B, 2, H, W]
-        logits = self.map_decoder(image_embeddings)
-        scores = torch.sigmoid(logits)
+        # logits, scores: [B, 2, H, W]
+        if self.config.USE_SAM_DECODER:
+            sparse_embeddings, dense_embeddings = self.prompt_encoder(
+                points=None, boxes=None, masks=None
+            )
+            low_res_logits, iou_predictions = self.mask_decoder(
+                image_embeddings=image_embeddings,
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=True
+            )
+            logits = F.interpolate(
+                low_res_logits,
+                (self.image_encoder.img_size, self.image_encoder.img_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+            scores = torch.sigmoid(logits)
+        else:
+            logits = self.map_decoder(image_embeddings)
+            scores = torch.sigmoid(logits)
         # [B, H, W, 2]
         logits = logits.permute(0, 2, 3, 1)
         scores = scores.permute(0, 2, 3, 1)
@@ -285,11 +335,23 @@ class SAMRoad(pl.LightningModule):
                 'lr': self.config.BASE_LR,
             }
             param_dicts.append(encoder_params)
-        decoder_params = {
-            'params': self.map_decoder.parameters(),
-            'lr': self.config.BASE_LR
-        }
-        param_dicts.append(decoder_params)
+        
+        if self.config.USE_SAM_DECODER:
+            matched_decoder_params = {
+                'params': [p for k, p in self.mask_decoder.named_parameters() if k in self.matched_sam_param_names],
+                'lr': self.config.BASE_LR * 0.1
+            }
+            fresh_decoder_params = {
+                'params': [p for k, p in self.mask_decoder.named_parameters() if k not in self.matched_sam_param_names],
+                'lr': self.config.BASE_LR
+            }
+            decoder_params = [matched_decoder_params, fresh_decoder_params]
+        else:
+            decoder_params = [{
+                'params': self.map_decoder.parameters(),
+                'lr': self.config.BASE_LR
+            }]
+        param_dicts += decoder_params
         
         optimizer = torch.optim.Adam(param_dicts, lr=self.config.BASE_LR)
         return optimizer
