@@ -139,7 +139,7 @@ class SAMRoad(pl.LightningModule):
 
         #### LORA
         if config.ENCODER_LORA:
-            r = 4
+            r = self.config.LORA_RANK
             lora_layer_selection = None
             assert r > 0
             if lora_layer_selection:
@@ -186,7 +186,7 @@ class SAMRoad(pl.LightningModule):
         if self.config.FOCAL_LOSS:
             self.criterion = partial(torchvision.ops.sigmoid_focal_loss, reduction='mean')
         else:
-            self.criterion = torch.nn.functional.binary_cross_entropy_with_logits
+            self.criterion = torch.nn.BCEWithLogitsLoss()
         self.keypoint_iou = BinaryJaccardIndex(threshold=0.5)
         self.road_iou = BinaryJaccardIndex(threshold=0.5)
 
@@ -324,7 +324,7 @@ class SAMRoad(pl.LightningModule):
         param_dicts = []
         if not self.config.FREEZE_ENCODER and not self.config.ENCODER_LORA:
             encoder_params = {
-                'params': [p for k, p in self.image_encoder.named_parameters() if k in self.matched_sam_param_names],
+                'params': [p for k, p in self.image_encoder.named_parameters() if 'image_encoder.'+k in self.matched_sam_param_names],
                 'lr': self.config.BASE_LR * self.config.ENCODER_LR_FACTOR,
             }
             param_dicts.append(encoder_params)
@@ -338,11 +338,11 @@ class SAMRoad(pl.LightningModule):
         
         if self.config.USE_SAM_DECODER:
             matched_decoder_params = {
-                'params': [p for k, p in self.mask_decoder.named_parameters() if k in self.matched_sam_param_names],
+                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k in self.matched_sam_param_names],
                 'lr': self.config.BASE_LR * 0.1
             }
             fresh_decoder_params = {
-                'params': [p for k, p in self.mask_decoder.named_parameters() if k not in self.matched_sam_param_names],
+                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k not in self.matched_sam_param_names],
                 'lr': self.config.BASE_LR
             }
             decoder_params = [matched_decoder_params, fresh_decoder_params]
@@ -353,6 +353,10 @@ class SAMRoad(pl.LightningModule):
             }]
         param_dicts += decoder_params
         
+        for i, param_dict in enumerate(param_dicts):
+            param_num = sum([int(p.numel()) for p in param_dict['params']])
+            print(f'optim param dict {i} params num: {param_num}')
+
         optimizer = torch.optim.Adam(param_dicts, lr=self.config.BASE_LR)
         return optimizer
 
