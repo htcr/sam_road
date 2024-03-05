@@ -323,6 +323,7 @@ class SAMRoad(pl.LightningModule):
 
     def configure_optimizers(self):
         param_dicts = []
+
         if not self.config.FREEZE_ENCODER and not self.config.ENCODER_LORA:
             encoder_params = {
                 'params': [p for k, p in self.image_encoder.named_parameters() if 'image_encoder.'+k in self.matched_sam_param_names],
@@ -349,7 +350,7 @@ class SAMRoad(pl.LightningModule):
             decoder_params = [matched_decoder_params, fresh_decoder_params]
         else:
             decoder_params = [{
-                'params': self.map_decoder.parameters(),
+                'params': [p for p in self.map_decoder.parameters()],
                 'lr': self.config.BASE_LR
             }]
         param_dicts += decoder_params
