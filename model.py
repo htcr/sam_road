@@ -101,8 +101,8 @@ class SAMRoad(pl.LightningModule):
             out_chans=prompt_embed_dim
         )
 
-        #### Naive decoder
         if self.config.USE_SAM_DECODER:
+            # SAM DECODER
             # Not used, just produce null embeddings
             self.prompt_encoder=PromptEncoder(
                 embed_dim=prompt_embed_dim,
@@ -125,6 +125,7 @@ class SAMRoad(pl.LightningModule):
                 iou_head_hidden_dim=256,
             )
         else:
+            #### Naive decoder
             activation = nn.GELU
             self.map_decoder = nn.Sequential(
                 nn.ConvTranspose2d(encoder_output_dim, 128, kernel_size=2, stride=2),
