@@ -359,9 +359,9 @@ class SAMRoad(pl.LightningModule):
             param_num = sum([int(p.numel()) for p in param_dict['params']])
             print(f'optim param dict {i} params num: {param_num}')
 
+        # optimizer = torch.optim.AdamW(param_dicts, lr=self.config.BASE_LR, betas=(0.9, 0.999), weight_decay=0.1)
         optimizer = torch.optim.Adam(param_dicts, lr=self.config.BASE_LR)
-        return optimizer
-
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, config.TRAIN.LR_DROP)
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler}
+        # warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
+        step_lr = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[9,], gamma=0.1)
+        return {'optimizer': optimizer, 'lr_scheduler': step_lr}
 

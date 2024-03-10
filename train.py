@@ -17,6 +17,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 import wandb
 from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.callbacks import LearningRateMonitor
 
 
 parser = ArgumentParser()
@@ -118,6 +119,7 @@ if __name__ == "__main__":
     )
 
     checkpoint_callback = ModelCheckpoint(every_n_epochs=1, save_top_k=-1)
+    lr_monitor = LearningRateMonitor(logging_interval='step')
 
     wandb_logger = WandbLogger()
 
@@ -128,7 +130,7 @@ if __name__ == "__main__":
         max_epochs=config.TRAIN_EPOCHS,
         check_val_every_n_epoch=1,
         num_sanity_val_steps=2,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback, lr_monitor],
         logger=wandb_logger,
         fast_dev_run=args.fast_dev_run,
         # strategy='ddp_find_unused_parameters_true',
