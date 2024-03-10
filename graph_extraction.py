@@ -95,6 +95,25 @@ def is_connected_bresenham(cost, start, end):
 
     return max_cost < 255
 
+
+def is_connected_astar(pathfinder, cost, start, end, max_path_len):
+    # we can still modify the cost matrix after creating the pathfinder with it
+    # seems pathfinder uses reference
+    c0, r0 = start
+    c1, r1 = end
+    kp_block_radius = 8
+    cv2.circle(cost, start, kp_block_radius, 1, -1)
+    cv2.circle(cost, end, kp_block_radius, 1, -1)
+    
+    path = pathfinder.get_path(r0, c0, r1, c1)
+    connected = (len(path) != 0) and (len(path) < max_path_len)
+
+    cv2.circle(cost, start, kp_block_radius, 0, -1)
+    cv2.circle(cost, end, kp_block_radius, 0, -1)
+
+    return connected
+
+
 def create_cost_field(sample_pts, road_mask):
     # road mask shall be uint8 normalized to 0-255
     cost_field = np.zeros(road_mask.shape, dtype=np.uint8)
@@ -104,14 +123,35 @@ def create_cost_field(sample_pts, road_mask):
     cost_field = np.maximum(cost_field, 255 - road_mask)
     return cost_field
 
+def create_cost_field_astar(sample_pts, road_mask, block_threshold=200):
+    # road mask shall be uint8 normalized to 0-255
+    # for tcod, 0 is blocked
+    cost_field = np.zeros(road_mask.shape, dtype=np.uint8)
+    kp_block_radius = 8
+    for point in sample_pts:
+        cv2.circle(cost_field, point, kp_block_radius, 255, -1)
+    cost_field = np.maximum(cost_field, 255 - road_mask)
+    cost_field[cost_field == 0] = 1
+    cost_field[cost_field > block_threshold] = 0
+
+    return cost_field
+
 def extract_graph(keypoint_mask, road_mask):
     kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, 128)
     kps_0 = nms_points(kp_candidates, kp_scores, 8)
     kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, 128)
     kps_1 = nms_points(kp_candidates, kp_scores, 16)
-    kps = np.concatenate([kps_0, kps_1], axis=0)
+    # prioritize intersection points
+    kp_candidates = np.concatenate([kps_0, kps_1], axis=0)
+    kp_scores = np.concatenate([np.ones((kps_0.shape[0])), np.zeros((kps_1.shape[0]))], axis=0)
+    kps = nms_points(kp_candidates, kp_scores, 16)
 
-    cost_field = create_cost_field(kps, road_mask)
+    # cost_field = create_cost_field(kps, road_mask)
+    cost_field = create_cost_field_astar(kps, road_mask)
+    viz_cost_field = np.array(cost_field)
+    viz_cost_field[viz_cost_field == 0] = 255
+    cv2.imwrite('astar_cost_dbg.png', viz_cost_field)
+    pathfinder = tcod.path.AStar(cost_field)
 
     tree = KDTree(kps)
     graph = nx.Graph()
@@ -123,7 +163,8 @@ def extract_graph(keypoint_mask, road_mask):
             start, end = (int(p[0]), int(p[1])), (int(n[0]), int(n[1]))
             if (start, end) in checked:
                 continue
-            if is_connected_bresenham(cost_field, p, n):
+            # if is_connected_bresenham(cost_field, p, n):
+            if is_connected_astar(pathfinder, cost_field, p, n, max_path_len=40):
                 graph.add_edge(start, end)
             checked.add((start, end))
     return graph
@@ -148,6 +189,19 @@ def visualize_image_and_graph(img, graph):
     return img
     
 
+# cost = np.array(
+#     [[1, 0, 1],
+#      [0, 1, 0],
+#      [0, 0, 0]],
+#      dtype=np.int32
+# )
+# pathfinder = tcod.path.AStar(cost)
+# print(pathfinder.get_path(0, 2, 0, 0))
+# cost[1, 1] = 0
+# print(pathfinder.get_path(0, 2, 0, 0))
+# cost[1, 1] = 1
+# print(pathfinder.get_path(0, 2, 0, 0))
+
 
 rgb_pattern = './cityscale/20cities/region_{}_sat.png'
 keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
@@ -160,13 +214,4 @@ keypoint_mask = cv2.imread(keypoint_mask_pattern.format(index), cv2.IMREAD_GRAYS
 
 graph = extract_graph(keypoint_mask, road_mask)
 viz = visualize_image_and_graph(rgb, graph)
-cv2.imwrite('test_graph_6.png', viz)
-
-# # kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, 128)
-# # kps = nms_points(kp_candidates, kp_scores, 8)
-# kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, 128)
-# kps = nms_points(kp_candidates, kp_scores, 16)
-
-# draw_points_on_image(rgb, kps, radius=3)
-# cv2.imwrite('test_2.png', rgb)
-
+cv2.imwrite('test_graph_astar_blk8_r40_m40_inms.png', viz)
