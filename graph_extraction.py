@@ -101,7 +101,7 @@ def is_connected_astar(pathfinder, cost, start, end, max_path_len):
     # seems pathfinder uses reference
     c0, r0 = start
     c1, r1 = end
-    kp_block_radius = 8
+    kp_block_radius = 6
     cv2.circle(cost, start, kp_block_radius, 1, -1)
     cv2.circle(cost, end, kp_block_radius, 1, -1)
     
@@ -127,7 +127,7 @@ def create_cost_field_astar(sample_pts, road_mask, block_threshold=200):
     # road mask shall be uint8 normalized to 0-255
     # for tcod, 0 is blocked
     cost_field = np.zeros(road_mask.shape, dtype=np.uint8)
-    kp_block_radius = 8
+    kp_block_radius = 6
     for point in sample_pts:
         cv2.circle(cost_field, point, kp_block_radius, 255, -1)
     cost_field = np.maximum(cost_field, 255 - road_mask)
@@ -150,7 +150,7 @@ def extract_graph(keypoint_mask, road_mask):
     cost_field = create_cost_field_astar(kps, road_mask)
     viz_cost_field = np.array(cost_field)
     viz_cost_field[viz_cost_field == 0] = 255
-    cv2.imwrite('astar_cost_dbg.png', viz_cost_field)
+    # cv2.imwrite('astar_cost_dbg.png', viz_cost_field)
     pathfinder = tcod.path.AStar(cost_field)
 
     tree = KDTree(kps)
@@ -189,29 +189,30 @@ def visualize_image_and_graph(img, graph):
     return img
     
 
-# cost = np.array(
-#     [[1, 0, 1],
-#      [0, 1, 0],
-#      [0, 0, 0]],
-#      dtype=np.int32
-# )
-# pathfinder = tcod.path.AStar(cost)
-# print(pathfinder.get_path(0, 2, 0, 0))
-# cost[1, 1] = 0
-# print(pathfinder.get_path(0, 2, 0, 0))
-# cost[1, 1] = 1
-# print(pathfinder.get_path(0, 2, 0, 0))
+if __name__ == '__main__':
 
+    # cost = np.array(
+    #     [[1, 0, 1],
+    #      [0, 1, 0],
+    #      [0, 0, 0]],
+    #      dtype=np.int32
+    # )
+    # pathfinder = tcod.path.AStar(cost)
+    # print(pathfinder.get_path(0, 2, 0, 0))
+    # cost[1, 1] = 0
+    # print(pathfinder.get_path(0, 2, 0, 0))
+    # cost[1, 1] = 1
+    # print(pathfinder.get_path(0, 2, 0, 0))
 
-rgb_pattern = './cityscale/20cities/region_{}_sat.png'
-keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
-road_mask_pattern = './cityscale/processed/road_mask_{}.png'
+    rgb_pattern = './cityscale/20cities/region_{}_sat.png'
+    keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
+    road_mask_pattern = './cityscale/processed/road_mask_{}.png'
 
-index = 0
-rgb = read_rgb_img(rgb_pattern.format(index))
-road_mask = cv2.imread(road_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
-keypoint_mask = cv2.imread(keypoint_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
+    index = 0
+    rgb = read_rgb_img(rgb_pattern.format(index))
+    road_mask = cv2.imread(road_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
+    keypoint_mask = cv2.imread(keypoint_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
 
-graph = extract_graph(keypoint_mask, road_mask)
-viz = visualize_image_and_graph(rgb, graph)
-cv2.imwrite('test_graph_astar_blk8_r40_m40_inms.png', viz)
+    graph = extract_graph(keypoint_mask, road_mask)
+    viz = visualize_image_and_graph(rgb, graph)
+    cv2.imwrite('test_graph_astar_blk6_r40_m40_inms.png', viz)

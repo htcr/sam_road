@@ -1,21 +1,17 @@
-import os
-import yaml
-from addict import Dict
-import sys
-import json
-
 from argparse import ArgumentParser
 import numpy as np
 import torch
 import torch.nn as nn
-
 from torch.utils.data import DataLoader
+
+from utils import load_config
 from dataset import CityScaleDataset
 from model import SAMRoad
 
+import wandb
+
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
-import wandb
 from pytorch_lightning.loggers import WandbLogger
 from lightning.pytorch.callbacks import LearningRateMonitor
 
@@ -39,12 +35,6 @@ parser.add_argument(
 parser.add_argument(
     "--dev_run", default=False, action='store_true'
 )
-
-def load_config(path):
-    with open(path) as file:
-        config_dict = yaml.safe_load(file)
-    return Dict(config_dict)
-
 
 
 if __name__ == "__main__":

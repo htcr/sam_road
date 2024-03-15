@@ -12,13 +12,49 @@ def read_rgb_img(path):
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return rgb
 
+def cityscale_data_partition():
+    # dataset partition
+    indrange_train = []
+    indrange_test = []
+    indrange_validation = []
+
+    for x in range(180):
+        if x % 10 < 8 :
+            indrange_train.append(x)
+
+        if x % 10 == 9:
+            indrange_test.append(x)
+
+        if x % 20 == 18:
+            indrange_validation.append(x)
+
+        if x % 20 == 8:
+            indrange_test.append(x)
+    return indrange_train, indrange_validation, indrange_test
+
+
+def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, patches_per_edge):
+    patch_info = []
+    sample_min = sample_margin
+    sample_max = image_size - (patch_size + sample_margin)
+    eval_samples = np.linspace(start=sample_min, stop=sample_max, num=patches_per_edge)
+    eval_samples = [round(x) for x in eval_samples]
+    for x in eval_samples:
+        for y in eval_samples:
+            patch_info.append(
+                (image_index, (x, y), (x + patch_size, y + patch_size))
+            )
+    return patch_info
+
+
+
 class CityScaleDataset(Dataset):
     def __init__(self, config, is_train):
         self.config = config
         rgb_pattern = './cityscale/20cities/region_{}_sat.png'
         keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
         road_mask_pattern = './cityscale/processed/road_mask_{}.png'
-        train, val, test = self.data_partition()
+        train, val, test = cityscale_data_partition()
 
         self.is_train = is_train
 
@@ -43,36 +79,11 @@ class CityScaleDataset(Dataset):
         self.sample_max = IMAGE_SIZE - (self.config.PATCH_SIZE + SAMPLE_MARGIN)
 
         eval_patches_per_edge = math.ceil((IMAGE_SIZE - 2 * SAMPLE_MARGIN) / self.config.PATCH_SIZE)
-        eval_samples = np.linspace(start=self.sample_min, stop=self.sample_max, num=eval_patches_per_edge)
-        eval_samples = [round(x) for x in eval_samples]
         self.eval_patches = []
         for i in range(len(test_split)):
-            for x in eval_samples:
-                for y in eval_samples:
-                    self.eval_patches.append(
-                        (i, (x, y), (x + self.config.PATCH_SIZE, y + self.config.PATCH_SIZE))
-                    )
-        
-
-    def data_partition(self):
-        # dataset partition
-        indrange_train = []
-        indrange_test = []
-        indrange_validation = []
-
-        for x in range(180):
-            if x % 10 < 8 :
-                indrange_train.append(x)
-
-            if x % 10 == 9:
-                indrange_test.append(x)
-
-            if x % 20 == 18:
-                indrange_validation.append(x)
-
-            if x % 20 == 8:
-                indrange_test.append(x)
-        return indrange_train, indrange_validation, indrange_test
+            self.eval_patches += get_patch_info_one_img(
+                i, IMAGE_SIZE, SAMPLE_MARGIN, self.config.PATCH_SIZE, eval_patches_per_edge
+            )
 
     def __len__(self):
         if self.is_train:
