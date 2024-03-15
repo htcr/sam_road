@@ -73,6 +73,20 @@ def edge_list_to_adj_table(edges):
         start_idx, end_idx = edge[0], edge[1]
         adj_table[start_idx].add(end_idx)
     return adj_table
+
+
+def edge_list_to_adj_table(nodes, edges):
+    # edges: [[src_idx, dst_idx], ...] node indices must start from 0 and
+    # be continuous.
+    # Returns:
+    # adj_table: list of sets. len(adj_table) = num_nodes, adj_table[i] 
+    # = neighbor node indices of node i. Empty if no neighbors.
+    node_num = len(nodes)
+    adj_table = [set() for i in range(node_num)]
+    for edge in edges:
+        start_idx, end_idx = edge[0], edge[1]
+        adj_table[start_idx].add(end_idx)
+    return adj_table
     
 
 def trace_segment(start_edge, adj_table):
@@ -370,10 +384,10 @@ def convert_to_sat2graph_format(nodes, edges):
     # Returns: A dict. Keys are (row, col) coordinates of each node. Float inputs will be rounded to int.
     # Values are lists, each item being a (row, col) of a neighbor node.
     # Edges are not directed. Input edges will be combined with reverse edges.
-    reverse_edges = [(end, start) for start, end in edges]
-    all_edges = edges + reverse_edges
+    reverse_edges = edges[:, ::-1]
+    all_edges = np.concatenate((edges, reverse_edges), axis=0)
 
-    adj_table = edge_list_to_adj_table(all_edges)
+    adj_table = edge_list_to_adj_table(nodes, all_edges)
     
     int_nodes = [(round(x), round(y)) for x, y in nodes]
     

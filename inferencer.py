@@ -131,17 +131,17 @@ def infer_one_img(net, img, config, img_name, out_dir):
         os.makedirs(viz_save_dir)
     viz_img = triage.visualize_image_and_graph(viz_img, pred_nodes / 2048, pred_edges, viz_img.shape[0])
     cv2.imwrite(os.path.join(viz_save_dir, img_name), viz_img)
-    
+
     # Saves the large map
-    # large_map_sat2graph_format = graph_utils.convert_to_sat2graph_format(pred_nodes, pred_edges)
-    # # To suit code from RNGDet++: region_8_sat.png -> 8.p
-    # region_id = img_name.split('_')[1]
-    # graph_save_dir = os.path.join(out_dir, 'graph')
-    # if not os.path.exists(graph_save_dir):
-    #     os.makedirs(graph_save_dir)
-    # graph_save_path = os.path.join(graph_save_dir, f'{region_id}.p')
-    # with open(graph_save_path, 'wb') as file:
-    #     pickle.dump(large_map_sat2graph_format, file)
+    large_map_sat2graph_format = graph_utils.convert_to_sat2graph_format(pred_nodes, pred_edges)
+    # To suit code from RNGDet++: region_8_sat.png -> 8.p
+    region_id = img_name.split('_')[1]
+    graph_save_dir = os.path.join(out_dir, 'graph')
+    if not os.path.exists(graph_save_dir):
+        os.makedirs(graph_save_dir)
+    graph_save_path = os.path.join(graph_save_dir, f'{region_id}.p')
+    with open(graph_save_path, 'wb') as file:
+        pickle.dump(large_map_sat2graph_format, file)
     
     print(f'Done for {img_name}.')
 
