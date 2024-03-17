@@ -483,6 +483,8 @@ def find_intersection(segment1, segment2):
     Returns:
         A tuple (x, y) representing the intersection point, or None if there is no intersection.
     """
+    (x1, y1), (x2, y2) = segment1
+    (x3, y3), (x4, y4) = segment2
     line1 = LineString([segment1[0], segment1[1]])
     line2 = LineString([segment2[0], segment2[1]])
 
@@ -490,11 +492,17 @@ def find_intersection(segment1, segment2):
     intersection = line1.intersection(line2)
 
     if not intersection.is_empty and intersection.geom_type == 'Point':
-        return (intersection.x, intersection.y)
-    else:
-        # geom_type could be line if two parallel lines overlap
-        # or just no intersection
-        return None
+        if not (
+            intersection.equals(Point(x1, y1)) or
+            intersection.equals(Point(x2, y2)) or
+            intersection.equals(Point(x3, y3)) or
+            intersection.equals(Point(x4, y4))
+        ):
+            return (intersection.x, intersection.y)
+    # geom_type could be line if two parallel lines overlap
+    # or just no intersection
+    # or intersection is at endpoints
+    return None
 
 def find_crossover_points(graph):
     # takes igraph
@@ -665,18 +673,21 @@ class TestGraphUtils(unittest.TestCase):
         g = igraph_from_sat2graph_format(adj)
         self.assertEqual(len(g.es), 3)
         self.assertEqual(len(g.vs), 3)
-        self.assertEqual(g.vs[0]['point'][0], 1)
-        self.assertEqual(g.vs[0]['point'][1], 2)
+        # TODO: flipped due to rc->xy this is messy
+        self.assertEqual(g.vs[0]['point'][0], 2)
+        self.assertEqual(g.vs[0]['point'][1], 1)
 
     def test_find_crossover_points(self):
         adj = {
             (0, 1) : [(10, 1), ],
-            (2, -2) : [(2, 10), ]
+            (2, -2) : [(2, 10), ],
+            (10, 1) : [(20, 1), ],
         }
         g = igraph_from_sat2graph_format(adj)
         pts = find_crossover_points(g)
         self.assertEqual(len(pts), 1)
-        gt = np.array([2.0, 1.0])
+        # TODO: flipped due to rc->xy this is messy
+        gt = np.array([1.0, 2.0])
         pd = np.array(pts[0])
         np.testing.assert_almost_equal(gt, pd)
 

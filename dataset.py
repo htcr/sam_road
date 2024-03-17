@@ -61,7 +61,8 @@ class GraphLabelGenerator():
         self.crossover_points = graph_utils.find_crossover_points(self.full_graph_origin)
         # subdivide version
         # TODO: check proper resolution
-        self.full_graph_subdivide = graph_utils.subdivide_graph(self.full_graph_origin, 4)
+        self.subdivide_resolution = 4
+        self.full_graph_subdivide = graph_utils.subdivide_graph(self.full_graph_origin, self.subdivide_resolution)
         # np array, maybe faster
         self.subdivide_points = np.array(self.full_graph_subdivide.vs['point'])
         # pre-build spatial index
@@ -75,13 +76,12 @@ class GraphLabelGenerator():
         self.graph_kdtree = scipy.spatial.KDTree(self.subdivide_points)
 
         # pre-exclude points near crossover points
-        crossover_exclude_radius = 8
+        crossover_exclude_radius = 4
         exclude_indices = set()
         for p in self.crossover_points:
             nearby_indices = self.graph_kdtree.query_ball_point(p, crossover_exclude_radius)
             exclude_indices.update(nearby_indices)
-        # self.exclude_indices = exclude_indices
-        self.exclude_indices = set()  ## DEBUG
+        self.exclude_indices = exclude_indices
 
         # Find intersection points, these will always be kept in nms
         itsc_indices = set()
@@ -104,8 +104,8 @@ class GraphLabelGenerator():
         for p in self.crossover_points:
             nearby_indices = self.graph_kdtree.query_ball_point(np.array(p), interesting_radius)
             interesting_indices.update(nearby_indices)
-        self.sample_weights = np.full((point_num, ), 0.2, dtype=np.float32)
-        self.sample_weights[list(interesting_indices)] = 0.8
+        self.sample_weights = np.full((point_num, ), 0.1, dtype=np.float32)
+        self.sample_weights[list(interesting_indices)] = 0.9
         
     
     def sample_patch(self, patch):
@@ -135,7 +135,7 @@ class GraphLabelGenerator():
 
 
         # TODO: this shall be in config and tuned
-        sample_num = 128  # has to be greater than 1
+        sample_num = 512  # has to be greater than 1
         sample_weights = self.sample_weights[nmsed_indices]
         # indices into the nmsed points in the patch
         sample_indices_in_nmsed = np.random.choice(
@@ -145,12 +145,14 @@ class GraphLabelGenerator():
         sample_indices = nmsed_indices[sample_indices_in_nmsed]
         
         # TODO: in config
-        radius = 128
+        radius = 64
         max_nbr_queries = 16  # has to be greater than 1
         nmsed_kdtree = scipy.spatial.KDTree(nmsed_points)
         sampled_points = self.subdivide_points[sample_indices, :]
         # [n_sample, n_nbr]
         knn_d, knn_idx = nmsed_kdtree.query(sampled_points, k=max_nbr_queries, distance_upper_bound=radius)
+        # the subgraph within radius
+        subgraphs = self.graph_kdtree.query_ball_point(sampled_points, r=radius)
 
 
         samples = []
@@ -170,8 +172,10 @@ class GraphLabelGenerator():
                 itsc = path_nodes.intersection(target_set)
                 # Checks if path goes outside the patch - if so, shouldn't connect
                 out_of_patch = path_nodes - patch_indices_all
+                # out_of_range = path_nodes - set(subgraphs[i]) - patch_indices_all
+                path_dist = (len(path) - 1) * self.subdivide_resolution
                 
-                if len(itsc) == 0 and len(out_of_patch) == 0:
+                if len(itsc) == 0 and len(out_of_patch) == 0 and path_dist < radius:
                     # shall connect
                     shall_connect.append(True)
                 else:
@@ -206,12 +210,12 @@ def test_graph_label_generator():
     if not os.path.exists('debug'):
         os.mkdir('debug')
 
-    rgb_path = './cityscale/20cities/region_2_sat.png'
+    rgb_path = './cityscale/20cities/region_3_sat.png'
     # Load GT Graph
-    gt_graph = pickle.load(open(f"./cityscale/20cities/region_2_refine_gt_graph.p",'rb'))
+    gt_graph = pickle.load(open(f"./cityscale/20cities/region_3_refine_gt_graph.p",'rb'))
     rgb = read_rgb_img(rgb_path)
     gen = GraphLabelGenerator(None, gt_graph)
-    patch = ((x0, y0), (x1, y1)) = ((64, 64), (64+256, 64+256))
+    patch = ((x0, y0), (x1, y1)) = ((2048-512-64, 64), (2048+256-64, 64+512))
     test_num = 16
     for i in range(test_num):
         points, samples = gen.sample_patch(patch)
