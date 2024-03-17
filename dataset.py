@@ -90,7 +90,7 @@ class GraphLabelGenerator():
             if self.full_graph_subdivide.degree(i) != 2:
                 itsc_indices.add(i)
         self.nms_score_override = np.zeros((point_num, ), dtype=np.float32)
-        self.nms_score_override[np.array(list(itsc_indices))] = 1.0
+        self.nms_score_override[np.array(list(itsc_indices))] = 2.0  # itsc points will always be kept
 
         # Points near crossover and intersections are interesting.
         # they will be more frequently sampled
@@ -135,7 +135,7 @@ class GraphLabelGenerator():
 
 
         # TODO: this shall be in config and tuned
-        sample_num = 4  # has to be greater than 1
+        sample_num = 128  # has to be greater than 1
         sample_weights = self.sample_weights[nmsed_indices]
         # indices into the nmsed points in the patch
         sample_indices_in_nmsed = np.random.choice(
@@ -146,7 +146,7 @@ class GraphLabelGenerator():
         
         # TODO: in config
         radius = 128
-        max_nbr_queries = 16  ## DEBUG  # has to be greater than 1
+        max_nbr_queries = 16  # has to be greater than 1
         nmsed_kdtree = scipy.spatial.KDTree(nmsed_points)
         sampled_points = self.subdivide_points[sample_indices, :]
         # [n_sample, n_nbr]

@@ -554,8 +554,10 @@ def subdivide_graph(graph, resolution):
         
 
 def nms_points(points, scores, radius, return_indices=False):
+    # if score > 1.0, the point is forced to be kept regardless
     sorted_indices = np.argsort(scores)[::-1]
     sorted_points = points[sorted_indices, :]
+    sorted_scores = scores[sorted_indices]
     kept = np.ones(sorted_indices.shape[0], dtype=bool)
     # TODO: unify KDTree lib
     tree = sklearn.neighbors.KDTree(sorted_points)
@@ -563,7 +565,9 @@ def nms_points(points, scores, radius, return_indices=False):
         if not kept[idx]:
             continue
         neighbor_indices = tree.query_radius(p[np.newaxis, :], r=radius)[0]
-        kept[neighbor_indices] = False
+        neighbor_scores = sorted_scores[neighbor_indices]
+        keep_nbr = np.greater(neighbor_scores, 1.0)
+        kept[neighbor_indices] = keep_nbr
         kept[idx] = True
     if return_indices:
         return sorted_points[kept], sorted_indices[kept]
