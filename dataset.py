@@ -106,7 +106,6 @@ class GraphLabelGenerator():
             interesting_indices.update(nearby_indices)
         self.sample_weights = np.full((point_num, ), 0.1, dtype=np.float32)
         self.sample_weights[list(interesting_indices)] = 0.9
-        
     
     def sample_patch(self, patch):
         (x0, y0), (x1, y1) = patch
@@ -150,9 +149,8 @@ class GraphLabelGenerator():
         nmsed_kdtree = scipy.spatial.KDTree(nmsed_points)
         sampled_points = self.subdivide_points[sample_indices, :]
         # [n_sample, n_nbr]
-        knn_d, knn_idx = nmsed_kdtree.query(sampled_points, k=max_nbr_queries, distance_upper_bound=radius)
-        # the subgraph within radius
-        subgraphs = self.graph_kdtree.query_ball_point(sampled_points, r=radius)
+        # k+1 because the nearest one is always self
+        knn_d, knn_idx = nmsed_kdtree.query(sampled_points, k=max_nbr_queries + 1, distance_upper_bound=radius)
 
 
         samples = []
@@ -160,27 +158,36 @@ class GraphLabelGenerator():
         for i in range(sample_num):
             source_node = sample_indices[i]
             valid_nbr_indices = knn_idx[i, knn_idx[i, :] < nmsed_point_num]
-            target_nodes = [nmsed_indices[ni] for ni in valid_nbr_indices]  # the nearest one is self so remove
-            # here it's really finding the path with least nodes but it's fine for subdivided graph
-            # because intervals are expected to be similar
-            paths = self.full_graph_subdivide.get_shortest_paths(source_node, to=target_nodes, output='vpath')
-            target_set = set(target_nodes)
-            shall_connect = list()
-            for path in paths:
-                path_nodes = set(path[1:-1])
-                # Check if path passes through other targets - if so, we shouldn't connect this pair
-                itsc = path_nodes.intersection(target_set)
-                # Checks if path goes outside the patch - if so, shouldn't connect
-                out_of_patch = path_nodes - patch_indices_all
-                # out_of_range = path_nodes - set(subgraphs[i]) - patch_indices_all
-                path_dist = (len(path) - 1) * self.subdivide_resolution
+            valid_nbr_indices = valid_nbr_indices[1:] # the nearest one is self so remove
+            target_nodes = [nmsed_indices[ni] for ni in valid_nbr_indices]  
+
+            ### BFS version
+            reached_nodes = graph_utils.bfs_with_conditions(self.full_graph_subdivide, source_node, set(target_nodes), radius // self.subdivide_resolution)
+            shall_connect = [t in reached_nodes for t in target_nodes]
+            ###
+
+            ##### Shortest path version
+            # # here it's really finding the path with least nodes but it's fine for subdivided graph
+            # # because intervals are expected to be similar
+            # paths = self.full_graph_subdivide.get_shortest_paths(source_node, to=target_nodes, output='vpath')
+            # target_set = set(target_nodes)
+            # shall_connect = list()
+            # for path in paths:
+            #     path_nodes = set(path[1:-1])
+            #     # Check if path passes through other targets - if so, we shouldn't connect this pair
+            #     itsc = path_nodes.intersection(target_set)
+            #     # Checks if path goes outside the patch - if so, shouldn't connect
+            #     out_of_patch = path_nodes - patch_indices_all
+            #     # out_of_range = path_nodes - set(subgraphs[i]) - patch_indices_all
+            #     path_dist = (len(path) - 1) * self.subdivide_resolution
                 
-                if len(itsc) == 0 and len(out_of_patch) == 0 and path_dist < radius:
-                    # shall connect
-                    shall_connect.append(True)
-                else:
-                    # shall not connect
-                    shall_connect.append(False)
+            #     if len(itsc) == 0 and len(out_of_patch) == 0 and path_dist < radius:
+            #         # shall connect
+            #         shall_connect.append(True)
+            #     else:
+            #         # shall not connect
+            #         shall_connect.append(False)
+            ######
             
             pairs = []
             valid = []
@@ -216,7 +223,7 @@ def test_graph_label_generator():
     rgb = read_rgb_img(rgb_path)
     gen = GraphLabelGenerator(None, gt_graph)
     patch = ((x0, y0), (x1, y1)) = ((2048-512-64, 64), (2048+256-64, 64+512))
-    test_num = 16
+    test_num = 64
     for i in range(test_num):
         points, samples = gen.sample_patch(patch)
         rgb_patch = rgb[y0:y1, x0:x1, :].copy()

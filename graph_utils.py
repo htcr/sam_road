@@ -12,7 +12,7 @@ import unittest
 
 import igraph as ig
 import rtree
-import sklearn
+import scipy
 
 
 def inspect_graph(node_array, edge_array):
@@ -560,19 +560,18 @@ def subdivide_graph(graph, resolution):
     new_graph.vs['point'] = np.array(new_points)
     return new_graph
         
-
 def nms_points(points, scores, radius, return_indices=False):
     # if score > 1.0, the point is forced to be kept regardless
     sorted_indices = np.argsort(scores)[::-1]
     sorted_points = points[sorted_indices, :]
     sorted_scores = scores[sorted_indices]
     kept = np.ones(sorted_indices.shape[0], dtype=bool)
-    # TODO: unify KDTree lib
-    tree = sklearn.neighbors.KDTree(sorted_points)
+    tree = scipy.spatial.KDTree(sorted_points)
     for idx, p in enumerate(sorted_points):
         if not kept[idx]:
             continue
-        neighbor_indices = tree.query_radius(p[np.newaxis, :], r=radius)[0]
+        # neighbor_indices = tree.query_radius(p[np.newaxis, :], r=radius)[0]
+        neighbor_indices = tree.query_ball_point(p, r=radius)
         neighbor_scores = sorted_scores[neighbor_indices]
         keep_nbr = np.greater(neighbor_scores, 1.0)
         kept[neighbor_indices] = keep_nbr
@@ -583,6 +582,44 @@ def nms_points(points, scores, radius, return_indices=False):
         return sorted_points[kept]
 
     
+def bfs_with_conditions(graph, start_node, stop_nodes, max_depth):
+    """
+    Perform BFS on an igraph graph (directed or undirected) from a given start node.
+    The search stops if it visits a node from a given set of stop nodes or if the depth reaches a threshold.
+    The function returns the set of visited nodes, including stop nodes if encountered.
+    
+    Args:
+    - graph (ig.Graph): The graph to search.
+    - start_node (int): The index of the node to start the BFS from.
+    - stop_nodes (set): A set of node indices where the search will stop if visited.
+    - max_depth (int): The maximum depth to search.
+    
+    Returns:
+    - set: The set of visited node indices.
+    """
+    visited = set()  # To keep track of visited nodes
+    queue = deque()
+    queue.append((start_node, 0))  # Queue of (node, depth)
+    
+    while queue:
+        current_node, current_depth = queue.popleft()  # Dequeue the next node and its depth
+        
+        # Mark node as visited
+        visited.add(current_node)
+        
+        # Check if the current node is a stop node or if the current depth exceeds max_depth
+        if current_node in stop_nodes or current_depth >= max_depth:
+            # Stop condition met, do not extend
+            continue  
+        
+        # Get neighbors and enqueue them with incremented depth, considering all edges
+        neighbors = graph.neighbors(current_node, mode="all")
+        for neighbor in neighbors:
+            if neighbor not in visited:
+                queue.append((neighbor, current_depth + 1))
+    
+    return visited
+
 
 
 ##### Unit tests #####
