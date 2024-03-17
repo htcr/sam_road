@@ -10,6 +10,10 @@ from shapely.strtree import STRtree
 from collections import deque
 import unittest
 
+import igraph as ig
+import rtree
+import sklearn
+
 
 def inspect_graph(node_array, edge_array):
     # node_array: [N_node, 2] coordinates of nodes.
@@ -449,6 +453,124 @@ def convert_from_nx(graph):
     return np.array(nodes), np.array(edges)
 
 
+### igraph utils for performance
+
+def igraph_from_sat2graph_format(graph):
+    # Edges will be de-duped
+    nodes, edges = convert_from_sat2graph_format(graph)
+    edges = set([(min(src, tgt), max(src, tgt)) for src, tgt in edges])
+    n_vertices = nodes.shape[0]
+    g = ig.Graph(n_vertices, list(edges))
+    g.vs['point'] = nodes[:, ::-1]  # to xy
+    return g
+
+def get_line_bbox(line):
+    (x0, y0), (x1, y1) = line
+    l = min(x0, x1) - 1
+    b = min(y0, y1) - 1
+    r = max(x0, x1) + 1
+    t = max(y0, y1) + 1
+    return (l, b, r, t)
+
+def find_intersection(segment1, segment2):
+    """
+    Finds the intersection point of two line segments, if it exists.
+
+    Parameters:
+        segment1 (tuple): A tuple representing the first line segment ((x1, y1), (x2, y2)).
+        segment2 (tuple): A tuple representing the second line segment ((x3, y3), (x4, y4)).
+
+    Returns:
+        A tuple (x, y) representing the intersection point, or None if there is no intersection.
+    """
+    line1 = LineString([segment1[0], segment1[1]])
+    line2 = LineString([segment2[0], segment2[1]])
+
+    # Check for intersection
+    intersection = line1.intersection(line2)
+
+    if not intersection.is_empty and intersection.geom_type == 'Point':
+        return (intersection.x, intersection.y)
+    else:
+        # geom_type could be line if two parallel lines overlap
+        # or just no intersection
+        return None
+
+def find_crossover_points(graph):
+    # takes igraph
+    # y axis shall point upwards for rtree to work properly
+    # crossover points are counted twice: A cross B, B cross A
+    # - which is fine for now just be aware
+    points = graph.vs['point']
+    edges = graph.es
+    lines = [(points[edge.source], points[edge.target]) for edge in edges]
+    line_bboxes = [get_line_bbox(line) for line in lines]
+    line_index = rtree.index.Index()
+    for idx, bbox in enumerate(line_bboxes):
+        line_index.insert(idx, bbox)
+
+    crossover_points = []
+    tested_pairs = set()
+    for i, line_0 in enumerate(lines):
+        bbox = line_bboxes[i]
+        nearby_indices = list(line_index.intersection(bbox))
+        for ni in nearby_indices:
+            pair = (min(i, ni), max(i, ni))
+            if pair in tested_pairs:
+                continue
+            line_1 = lines[ni]
+            itsc = find_intersection(line_0, line_1)
+            if itsc is not None:
+                crossover_points.append(itsc)
+            tested_pairs.add(pair)
+
+    return crossover_points
+
+def subdivide_graph(graph, resolution):
+    # takes igraph
+    new_points = [p for p in graph.vs['point']]
+    new_edges = []
+    for edge in graph.es:
+        p0, p1 = graph.vs['point'][edge.source], graph.vs['point'][edge.target]
+        length = np.linalg.norm(p1 - p0) 
+        sample_pieces = max(1, int(length / resolution))
+        # [N, ]
+        samples = np.linspace(0.0, 1.0, sample_pieces + 1, endpoint=True)
+        # [N, 2] = [1, 2] + [N, 1] @ [1, 2]
+        sampled_pts = np.expand_dims(np.array(p0), axis=0) + np.expand_dims(samples, axis=1) @ np.expand_dims(p1 - p0, axis=0)
+        # [N-2, 2]
+        sampled_pts = sampled_pts[1:-1, :]
+        new_point_indices = []
+        for new_pt in sampled_pts:
+            new_point_indices.append(len(new_points))
+            new_points.append(new_pt)
+        new_edges_sources = [edge.source] + new_point_indices
+        new_edges_targets = new_point_indices + [edge.target]
+        new_edges += list(zip(new_edges_sources, new_edges_targets))
+
+    new_graph = ig.Graph(len(new_points), new_edges)
+    new_graph.vs['point'] = np.array(new_points)
+    return new_graph
+        
+
+def nms_points(points, scores, radius, return_indices=False):
+    sorted_indices = np.argsort(scores)[::-1]
+    sorted_points = points[sorted_indices, :]
+    kept = np.ones(sorted_indices.shape[0], dtype=bool)
+    # TODO: unify KDTree lib
+    tree = sklearn.neighbors.KDTree(sorted_points)
+    for idx, p in enumerate(sorted_points):
+        if not kept[idx]:
+            continue
+        neighbor_indices = tree.query_radius(p[np.newaxis, :], r=radius)[0]
+        kept[neighbor_indices] = False
+        kept[idx] = True
+    if return_indices:
+        return sorted_points[kept], sorted_indices[kept]
+    else:
+        return sorted_points[kept]
+
+    
 
 
 ##### Unit tests #####
@@ -506,7 +628,7 @@ class TestGraphUtils(unittest.TestCase):
 
     def test_convert_to_sat2graph_format(self):
         nodes = np.array([[0.0, 0.0], [1.1, 1.1], [1.6, 1.6]])
-        edges = [[0, 1], [1, 2]]
+        edges = np.array([[0, 1], [1, 2]])
         result = convert_to_sat2graph_format(nodes, edges)
         gt_result = {(0, 0): [(1, 1)], (1, 1): [(0, 0), (2, 2)], (2, 2): [(1, 1)]}
         for k, v in result.items():
@@ -530,15 +652,42 @@ class TestGraphUtils(unittest.TestCase):
         gt_edges = np.array([[0, 1], [1, 2]])
         np.testing.assert_almost_equal(nodes, gt_nodes)
         np.testing.assert_almost_equal(edges, gt_edges)
-        
+
+    def test_igraph_from_sat2graph_format(self):
+        adj = {
+            (1, 2) : [(3, 4), (5, 6)],
+            (3, 4) : [(1, 2), (5, 6)],
+        }
+        g = igraph_from_sat2graph_format(adj)
+        self.assertEqual(len(g.es), 3)
+        self.assertEqual(len(g.vs), 3)
+        self.assertEqual(g.vs[0]['point'][0], 1)
+        self.assertEqual(g.vs[0]['point'][1], 2)
+
+    def test_find_crossover_points(self):
+        adj = {
+            (0, 1) : [(10, 1), ],
+            (2, -2) : [(2, 10), ]
+        }
+        g = igraph_from_sat2graph_format(adj)
+        pts = find_crossover_points(g)
+        self.assertEqual(len(pts), 1)
+        gt = np.array([2.0, 1.0])
+        pd = np.array(pts[0])
+        np.testing.assert_almost_equal(gt, pd)
+
+    def test_subdivide_graph(self):
+        adj = {
+            (0, 0) : [(10, 0), ],
+            (10, 0) : [(20, 0), ]
+        }
+        g = igraph_from_sat2graph_format(adj)
+        g1 = subdivide_graph(g, resolution=2.0)
+        self.assertEqual(len(g1.vs['point']), 11)
+        self.assertEqual(len(g1.es), 10)
+
 
 if __name__ == '__main__':
-    """
-    coords = np.array([[0.0, 0.0], [0.0, 3.0], [3.0, 3.0]])
-    segments = [[0, 1], [0, 2], [0, 1, 2]]
-    print(get_resampled_polylines(coords, segments, 3))
-    print(get_resampled_polylines(coords, segments, 4))
-    """
     unittest.main()
 
 

@@ -7,6 +7,7 @@ import tcod
 from sklearn.neighbors import KDTree
 from skimage.draw import line
 import networkx as nx
+from graph_utils import nms_points
 
 
 IMAGE_SIZE = 2048
@@ -17,18 +18,7 @@ def read_rgb_img(path):
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return rgb
 
-def nms_points(points, scores, radius):
-    sorted_indices = np.argsort(scores)[::-1]
-    sorted_points = points[sorted_indices, :]
-    kept = np.ones(sorted_indices.shape[0], dtype=bool)
-    tree = KDTree(sorted_points)
-    for idx, p in enumerate(sorted_points):
-        if not kept[idx]:
-            continue
-        neighbor_indices = tree.query_radius(p[np.newaxis, :], r=radius)[0]
-        kept[neighbor_indices] = False
-        kept[idx] = True
-    return sorted_points[kept]
+
 
 # returns (x, y)
 def get_points_and_scores_from_mask(mask, threshold):
@@ -137,6 +127,7 @@ def create_cost_field_astar(sample_pts, road_mask, block_threshold=200):
     return cost_field
 
 def extract_graph(keypoint_mask, road_mask):
+    # TODO: put these in config
     kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, 128)
     kps_0 = nms_points(kp_candidates, kp_scores, 8)
     kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, 128)
@@ -157,6 +148,7 @@ def extract_graph(keypoint_mask, road_mask):
     graph = nx.Graph()
     checked = set()
     for p in kps:
+        # TODO: add radius to config
         neighbor_indices = tree.query_radius(p[np.newaxis, :], r=40)[0]
         for n_idx in neighbor_indices:
             n = kps[n_idx]

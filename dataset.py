@@ -3,6 +3,11 @@ import torch
 from torch.utils.data import Dataset
 import cv2
 import math
+import graph_utils
+import rtree
+import scipy
+import pickle
+import os
 
 IMAGE_SIZE = 2048
 SAMPLE_MARGIN = 64
@@ -45,6 +50,192 @@ def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, p
                 (image_index, (x, y), (x + patch_size, y + patch_size))
             )
     return patch_info
+
+
+class GraphLabelGenerator():
+    def __init__(self, config, full_graph):
+        # full_graph: sat2graph format
+        # convert to igraph for high performance
+        self.full_graph_origin = graph_utils.igraph_from_sat2graph_format(full_graph)
+        # find crossover points, we'll avoid predicting these as keypoints
+        self.crossover_points = graph_utils.find_crossover_points(self.full_graph_origin)
+        # subdivide version
+        # TODO: check proper resolution
+        self.full_graph_subdivide = graph_utils.subdivide_graph(self.full_graph_origin, 4)
+        # np array, maybe faster
+        self.subdivide_points = np.array(self.full_graph_subdivide.vs['point'])
+        # pre-build spatial index
+        # rtree for box queries
+        self.graph_rtee = rtree.index.Index()
+        for i, v in enumerate(self.subdivide_points):
+            x, y = v
+            # hack to insert single points
+            self.graph_rtee.insert(i, (x, y, x, y))
+        # kdtree for spherical query
+        self.graph_kdtree = scipy.spatial.KDTree(self.subdivide_points)
+
+        # pre-exclude points near crossover points
+        crossover_exclude_radius = 8
+        exclude_indices = set()
+        for p in self.crossover_points:
+            nearby_indices = self.graph_kdtree.query_ball_point(p, crossover_exclude_radius)
+            exclude_indices.update(nearby_indices)
+        # self.exclude_indices = exclude_indices
+        self.exclude_indices = set()  ## DEBUG
+
+        # Find intersection points, these will always be kept in nms
+        itsc_indices = set()
+        point_num = len(self.full_graph_subdivide.vs)
+        for i in range(point_num):
+            if self.full_graph_subdivide.degree(i) != 2:
+                itsc_indices.add(i)
+        self.nms_score_override = np.zeros((point_num, ), dtype=np.float32)
+        self.nms_score_override[np.array(list(itsc_indices))] = 1.0
+
+        # Points near crossover and intersections are interesting.
+        # they will be more frequently sampled
+        interesting_indices = set()
+        interesting_radius = 32
+        # near itsc
+        for i in itsc_indices:
+            p = self.subdivide_points[i]
+            nearby_indices = self.graph_kdtree.query_ball_point(p, interesting_radius)
+            interesting_indices.update(nearby_indices)
+        for p in self.crossover_points:
+            nearby_indices = self.graph_kdtree.query_ball_point(np.array(p), interesting_radius)
+            interesting_indices.update(nearby_indices)
+        self.sample_weights = np.full((point_num, ), 0.2, dtype=np.float32)
+        self.sample_weights[list(interesting_indices)] = 0.8
+        
+    
+    def sample_patch(self, patch):
+        (x0, y0), (x1, y1) = patch
+        query_box = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        patch_indices_all = set(self.graph_rtee.intersection(query_box))
+        patch_indices = patch_indices_all - self.exclude_indices
+
+        # Use NMS to downsample, params shall resemble inference time
+        patch_indices = np.array(list(patch_indices))
+        patch_points = self.subdivide_points[patch_indices, :]
+        
+        # random scores to emulate different random configurations that all share a
+        # similar spacing between sampled points
+        # raise scores for intersction points so they are always kept
+        nms_scores = np.random.uniform(low=0.9, high=1.0, size=patch_indices.shape[0])
+        nms_score_override = self.nms_score_override[patch_indices]
+        nms_scores = np.maximum(nms_scores, nms_score_override)
+        # TODO: use config to align with inference
+        nms_radius = 16
+        
+        # kept_indces are into the patch_points array
+        nmsed_points, kept_indices = graph_utils.nms_points(patch_points, nms_scores, radius=nms_radius, return_indices=True)
+        # now this is into the subdivide graph
+        nmsed_indices = patch_indices[kept_indices]
+        nmsed_point_num = nmsed_points.shape[0]
+
+
+        # TODO: this shall be in config and tuned
+        sample_num = 4  # has to be greater than 1
+        sample_weights = self.sample_weights[nmsed_indices]
+        # indices into the nmsed points in the patch
+        sample_indices_in_nmsed = np.random.choice(
+            np.arange(start=0, stop=nmsed_points.shape[0], dtype=np.int32),
+            size=sample_num, replace=True, p=sample_weights / np.sum(sample_weights))
+        # indices into the subdivided graph
+        sample_indices = nmsed_indices[sample_indices_in_nmsed]
+        
+        # TODO: in config
+        radius = 128
+        max_nbr_queries = 16  ## DEBUG  # has to be greater than 1
+        nmsed_kdtree = scipy.spatial.KDTree(nmsed_points)
+        sampled_points = self.subdivide_points[sample_indices, :]
+        # [n_sample, n_nbr]
+        knn_d, knn_idx = nmsed_kdtree.query(sampled_points, k=max_nbr_queries, distance_upper_bound=radius)
+
+
+        samples = []
+
+        for i in range(sample_num):
+            source_node = sample_indices[i]
+            valid_nbr_indices = knn_idx[i, knn_idx[i, :] < nmsed_point_num]
+            target_nodes = [nmsed_indices[ni] for ni in valid_nbr_indices]  # the nearest one is self so remove
+            # here it's really finding the path with least nodes but it's fine for subdivided graph
+            # because intervals are expected to be similar
+            paths = self.full_graph_subdivide.get_shortest_paths(source_node, to=target_nodes, output='vpath')
+            target_set = set(target_nodes)
+            shall_connect = list()
+            for path in paths:
+                path_nodes = set(path[1:-1])
+                # Check if path passes through other targets - if so, we shouldn't connect this pair
+                itsc = path_nodes.intersection(target_set)
+                # Checks if path goes outside the patch - if so, shouldn't connect
+                out_of_patch = path_nodes - patch_indices_all
+                
+                if len(itsc) == 0 and len(out_of_patch) == 0:
+                    # shall connect
+                    shall_connect.append(True)
+                else:
+                    # shall not connect
+                    shall_connect.append(False)
+            
+            pairs = []
+            valid = []
+            source_nmsed_idx = sample_indices_in_nmsed[i]
+            for target_nmsed_idx in valid_nbr_indices:
+                pairs.append((source_nmsed_idx, target_nmsed_idx))
+                valid.append(True)
+
+            # zero-pad
+            for i in range(len(pairs), max_nbr_queries):
+                pairs.append((source_nmsed_idx, source_nmsed_idx))
+                shall_connect.append(False)
+                valid.append(False)
+
+            samples.append((pairs, shall_connect, valid))
+
+        # Transform points
+        nmsed_points -= np.array([x0, y0])[np.newaxis, :]
+            
+        # Add noise
+        # TODO
+
+        return nmsed_points, samples
+    
+
+def test_graph_label_generator():
+    if not os.path.exists('debug'):
+        os.mkdir('debug')
+
+    rgb_path = './cityscale/20cities/region_2_sat.png'
+    # Load GT Graph
+    gt_graph = pickle.load(open(f"./cityscale/20cities/region_2_refine_gt_graph.p",'rb'))
+    rgb = read_rgb_img(rgb_path)
+    gen = GraphLabelGenerator(None, gt_graph)
+    patch = ((x0, y0), (x1, y1)) = ((64, 64), (64+256, 64+256))
+    test_num = 16
+    for i in range(test_num):
+        points, samples = gen.sample_patch(patch)
+        rgb_patch = rgb[y0:y1, x0:x1, :].copy()
+        for pairs, shall_connect, valid in samples:
+            color = tuple(int(c) for c in np.random.randint(0, 256, size=3))
+
+            for (src, tgt), connected, is_valid in zip(pairs, shall_connect, valid):
+                if not is_valid:
+                    continue
+                p0, p1 = points[src], points[tgt]
+                cv2.circle(rgb_patch, p0.astype(np.int32), 4, color, -1)
+                cv2.circle(rgb_patch, p1.astype(np.int32), 2, color, -1)
+                if connected:
+                    cv2.line(
+                        rgb_patch,
+                        (int(p0[0]), int(p0[1])),
+                        (int(p1[0]), int(p1[1])),
+                        (255, 255, 255),
+                        1,
+                    )
+        cv2.imwrite(f'debug/viz_{i}.png', rgb_patch)
+
+        
 
 
 
@@ -115,3 +306,7 @@ class CityScaleDataset(Dataset):
         # rgb: [H, W, 3] 0-255
         # masks: [H, W] 0-1
         return torch.tensor(rgb_patch, dtype=torch.float32), torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0, torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0
+
+
+if __name__ == '__main__':
+    test_graph_label_generator()
