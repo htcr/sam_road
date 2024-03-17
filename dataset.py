@@ -8,6 +8,7 @@ import rtree
 import scipy
 import pickle
 import os
+import addict
 
 IMAGE_SIZE = 2048
 SAMPLE_MARGIN = 64
@@ -54,6 +55,7 @@ def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, p
 
 class GraphLabelGenerator():
     def __init__(self, config, full_graph):
+        self.config = config
         # full_graph: sat2graph format
         # convert to igraph for high performance
         self.full_graph_origin = graph_utils.igraph_from_sat2graph_format(full_graph)
@@ -107,7 +109,7 @@ class GraphLabelGenerator():
         self.sample_weights = np.full((point_num, ), 0.1, dtype=np.float32)
         self.sample_weights[list(interesting_indices)] = 0.9
     
-    def sample_patch(self, patch):
+    def sample_patch(self, patch, rot_index = 0):
         (x0, y0), (x1, y1) = patch
         query_box = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
         patch_indices_all = set(self.graph_rtee.intersection(query_box))
@@ -161,34 +163,11 @@ class GraphLabelGenerator():
             valid_nbr_indices = valid_nbr_indices[1:] # the nearest one is self so remove
             target_nodes = [nmsed_indices[ni] for ni in valid_nbr_indices]  
 
-            ### BFS version
+            ### BFS to find immediate neighbors on graph
             reached_nodes = graph_utils.bfs_with_conditions(self.full_graph_subdivide, source_node, set(target_nodes), radius // self.subdivide_resolution)
             shall_connect = [t in reached_nodes for t in target_nodes]
             ###
 
-            ##### Shortest path version
-            # # here it's really finding the path with least nodes but it's fine for subdivided graph
-            # # because intervals are expected to be similar
-            # paths = self.full_graph_subdivide.get_shortest_paths(source_node, to=target_nodes, output='vpath')
-            # target_set = set(target_nodes)
-            # shall_connect = list()
-            # for path in paths:
-            #     path_nodes = set(path[1:-1])
-            #     # Check if path passes through other targets - if so, we shouldn't connect this pair
-            #     itsc = path_nodes.intersection(target_set)
-            #     # Checks if path goes outside the patch - if so, shouldn't connect
-            #     out_of_patch = path_nodes - patch_indices_all
-            #     # out_of_range = path_nodes - set(subgraphs[i]) - patch_indices_all
-            #     path_dist = (len(path) - 1) * self.subdivide_resolution
-                
-            #     if len(itsc) == 0 and len(out_of_patch) == 0 and path_dist < radius:
-            #         # shall connect
-            #         shall_connect.append(True)
-            #     else:
-            #         # shall not connect
-            #         shall_connect.append(False)
-            ######
-            
             pairs = []
             valid = []
             source_nmsed_idx = sample_indices_in_nmsed[i]
@@ -205,10 +184,28 @@ class GraphLabelGenerator():
             samples.append((pairs, shall_connect, valid))
 
         # Transform points
+        # [N, 2]
         nmsed_points -= np.array([x0, y0])[np.newaxis, :]
+        # homo for rot
+        # [N, 3]
+        nmsed_points = np.concatenate([nmsed_points, np.ones((nmsed_point_num, 1), dtype=nmsed_points.dtype)], axis=1)
+        trans = np.array([
+            [1, 0, -0.5 * self.config.PATCH_SIZE],
+            [0, 1, -0.5 * self.config.PATCH_SIZE],
+            [0, 0, 1],
+        ], dtype=np.float32)
+        # ccw 90 deg in img (x, y)
+        rot = np.array([
+            [0, 1, 0],
+            [-1, 0, 0],
+            [0, 0, 1],
+        ], dtype=np.float32)
+        nmsed_points = nmsed_points @ trans.T @ np.linalg.matrix_power(rot.T, rot_index) @ np.linalg.inv(trans.T)
+        nmsed_points = nmsed_points[:, :2]
             
         # Add noise
-        # TODO
+        noise_scale = 1.0  # pixels
+        nmsed_points += np.random.normal(0.0, noise_scale, size=nmsed_points.shape)
 
         return nmsed_points, samples
     
@@ -217,16 +214,20 @@ def test_graph_label_generator():
     if not os.path.exists('debug'):
         os.mkdir('debug')
 
-    rgb_path = './cityscale/20cities/region_3_sat.png'
+    rgb_path = './cityscale/20cities/region_166_sat.png'
     # Load GT Graph
-    gt_graph = pickle.load(open(f"./cityscale/20cities/region_3_refine_gt_graph.p",'rb'))
+    gt_graph = pickle.load(open(f"./cityscale/20cities/region_166_refine_gt_graph.p",'rb'))
     rgb = read_rgb_img(rgb_path)
-    gen = GraphLabelGenerator(None, gt_graph)
-    patch = ((x0, y0), (x1, y1)) = ((2048-512-64, 64), (2048+256-64, 64+512))
+    config = addict.Dict()
+    config.PATCH_SIZE = 512
+    gen = GraphLabelGenerator(config, gt_graph)
+    patch = ((x0, y0), (x1, y1)) = ((64+512, 64), (64+512+config.PATCH_SIZE, 64+config.PATCH_SIZE))
     test_num = 64
     for i in range(test_num):
-        points, samples = gen.sample_patch(patch)
-        rgb_patch = rgb[y0:y1, x0:x1, :].copy()
+        rot_index = np.random.randint(0, 4)
+        points, samples = gen.sample_patch(patch, rot_index=rot_index)
+        rgb_patch = rgb[y0:y1, x0:x1, ::-1].copy()
+        rgb_patch = np.rot90(rgb_patch, rot_index, (0, 1)).copy()
         for pairs, shall_connect, valid in samples:
             color = tuple(int(c) for c in np.random.randint(0, 256, size=3))
 
@@ -253,9 +254,13 @@ def test_graph_label_generator():
 class CityScaleDataset(Dataset):
     def __init__(self, config, is_train):
         self.config = config
+        
         rgb_pattern = './cityscale/20cities/region_{}_sat.png'
         keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
         road_mask_pattern = './cityscale/processed/road_mask_{}.png'
+        gt_graph_pattern = './cityscale/20cities/region_{}_refine_gt_graph.p'
+        
+
         train, val, test = cityscale_data_partition()
 
         self.is_train = is_train
@@ -268,6 +273,9 @@ class CityScaleDataset(Dataset):
         
         # Stores all imgs in memory.
         self.rgbs, self.keypoint_masks, self.road_masks = [], [], []
+        # For graph label generation.
+        self.graph_label_generators = []
+
         for tile_idx in tile_indices:
             rgb_path = rgb_pattern.format(tile_idx)
             road_mask_path = road_mask_pattern.format(tile_idx)
@@ -275,6 +283,12 @@ class CityScaleDataset(Dataset):
             self.rgbs.append(read_rgb_img(rgb_path))
             self.road_masks.append(cv2.imread(road_mask_path, cv2.IMREAD_GRAYSCALE))
             self.keypoint_masks.append(cv2.imread(keypoint_mask_path, cv2.IMREAD_GRAYSCALE))
+
+            # graph label gen
+            # gt graph: dict for adj list, keys are (r, c) nodes, values are list of (r, c) nodes
+            gt_graph_adj = pickle.load(open(gt_graph_pattern.format(tile_idx),'rb'))
+            graph_label_generator = GraphLabelGenerator(config, gt_graph_adj)
+            self.graph_label_generators.append(graph_label_generator)
             
         
         self.sample_min = SAMPLE_MARGIN
@@ -294,6 +308,7 @@ class CityScaleDataset(Dataset):
             return len(self.eval_patches)
 
     def __getitem__(self, idx):
+        # Sample a patch.
         if self.is_train:
             img_idx = np.random.randint(low=0, high=len(self.rgbs))
             begin_x = np.random.randint(low=self.sample_min, high=self.sample_max+1)
@@ -303,16 +318,24 @@ class CityScaleDataset(Dataset):
             # Returns eval patch
             img_idx, (begin_x, begin_y), (end_x, end_y) = self.eval_patches[idx]
         
+        # Crop patch imgs and masks
         rgb_patch = self.rgbs[img_idx][begin_y:end_y, begin_x:end_x, :]
         keypoint_mask_patch = self.keypoint_masks[img_idx][begin_y:end_y, begin_x:end_x]
         road_mask_patch = self.road_masks[img_idx][begin_y:end_y, begin_x:end_x]
-        
+
         # Augmentation
+        rot_index = 0
         if self.is_train:
             rot_index = np.random.randint(0, 4)
+            # CCW
             rgb_patch = np.rot90(rgb_patch, rot_index, [0,1]).copy()
             keypoint_mask_patch = np.rot90(keypoint_mask_patch, rot_index, [0, 1]).copy()
             road_mask_patch = np.rot90(road_mask_patch, rot_index, [0, 1]).copy()
+        
+        # Sample graph labels from patch
+        patch = ((begin_x, begin_y), (end_x, end_y))
+        graph_samples = self.graph_label_generators[img_idx].sample_patch(patch, rot_index)
+
         
         # rgb: [H, W, 3] 0-255
         # masks: [H, W] 0-1
