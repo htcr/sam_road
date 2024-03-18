@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from utils import load_config
-from dataset import CityScaleDataset
+from dataset import CityScaleDataset, graph_collate_fn
 from model import SAMRoad
 
 import wandb
@@ -98,6 +98,7 @@ if __name__ == "__main__":
         shuffle=True,
         num_workers=config.DATA_WORKER_NUM,
         pin_memory=True,
+        collate_fn=graph_collate_fn,
     )
 
     val_loader = DataLoader(
@@ -106,6 +107,7 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=config.DATA_WORKER_NUM,
         pin_memory=True,
+        collate_fn=graph_collate_fn,
     )
 
     checkpoint_callback = ModelCheckpoint(every_n_epochs=1, save_top_k=-1)

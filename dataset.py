@@ -117,6 +117,16 @@ class GraphLabelGenerator():
 
         # Use NMS to downsample, params shall resemble inference time
         patch_indices = np.array(list(patch_indices))
+        if len(patch_indices) == 0:
+            # print("==== Patch is empty ====")
+            # this shall be rare, but if no points in side the patch, return null stuff
+            # TODO: in config
+            sample_num = 512
+            max_nbr_queries = 16
+            fake_points = np.array([[0.0, 0.0]], dtype=np.float32)
+            fake_sample = ([[0, 0]] * max_nbr_queries, [False] * max_nbr_queries, [False] * max_nbr_queries)
+            return fake_points, [fake_sample] * sample_num
+
         patch_points = self.subdivide_points[patch_indices, :]
         
         # random scores to emulate different random configurations that all share a
@@ -248,6 +258,22 @@ def test_graph_label_generator():
         cv2.imwrite(f'debug/viz_{i}.png', rgb_patch)
 
         
+def graph_collate_fn(batch):
+    keys = batch[0].keys()
+    collated = {}
+    for key in keys:
+        if key == 'graph_points':
+            tensors = [item[key] for item in batch]
+            max_point_num = max([x.shape[0] for x in tensors])
+            padded = []
+            for x in tensors:
+                pad_num = max_point_num - x.shape[0]
+                padded_x = torch.concat([x, torch.zeros(pad_num, 2)], dim=0)
+                padded.append(padded_x)
+            collated[key] = torch.stack(padded, dim=0)
+        else:
+            collated[key] = torch.stack([item[key] for item in batch], dim=0)
+    return collated
 
 
 
@@ -276,7 +302,12 @@ class CityScaleDataset(Dataset):
         # For graph label generation.
         self.graph_label_generators = []
 
+        ##### FAST DEBUG
+        # tile_indices = tile_indices[:4]
+        ##### FAST DEBUG
+
         for tile_idx in tile_indices:
+            print(f'loading tile {tile_idx}')
             rgb_path = rgb_pattern.format(tile_idx)
             road_mask_path = road_mask_pattern.format(tile_idx)
             keypoint_mask_path = keypoint_mask_pattern.format(tile_idx)
@@ -294,12 +325,13 @@ class CityScaleDataset(Dataset):
         self.sample_min = SAMPLE_MARGIN
         self.sample_max = IMAGE_SIZE - (self.config.PATCH_SIZE + SAMPLE_MARGIN)
 
-        eval_patches_per_edge = math.ceil((IMAGE_SIZE - 2 * SAMPLE_MARGIN) / self.config.PATCH_SIZE)
-        self.eval_patches = []
-        for i in range(len(test_split)):
-            self.eval_patches += get_patch_info_one_img(
-                i, IMAGE_SIZE, SAMPLE_MARGIN, self.config.PATCH_SIZE, eval_patches_per_edge
-            )
+        if not self.is_train:
+            eval_patches_per_edge = math.ceil((IMAGE_SIZE - 2 * SAMPLE_MARGIN) / self.config.PATCH_SIZE)
+            self.eval_patches = []
+            for i in range(len(tile_indices)):
+                self.eval_patches += get_patch_info_one_img(
+                    i, IMAGE_SIZE, SAMPLE_MARGIN, self.config.PATCH_SIZE, eval_patches_per_edge
+                )
 
     def __len__(self):
         if self.is_train:
@@ -337,14 +369,29 @@ class CityScaleDataset(Dataset):
         # points are img (x, y) inside the patch.
         graph_points, topo_samples = self.graph_label_generators[img_idx].sample_patch(patch, rot_index)
         
+        ### All-invalid samples will cause NaN due to all-invalid attn mask. Their loss will be
+        # ignored anyway, so we flip the mask to all-true for these samples
+        # filtered_topo_samples = []
+        # for pairs, connected, valid in topo_samples:
+        #     if not any(valid):
+        #         valid = [True] * len(valid)
+        #     filtered_topo_samples.append((pairs, connected, valid))
+        # topo_samples = filtered_topo_samples
+        
+        pairs, connected, valid = zip(*topo_samples)
+        
         # rgb: [H, W, 3] 0-255
         # masks: [H, W] 0-1
-        return (
-            torch.tensor(rgb_patch, dtype=torch.float32),
-            torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0,
-            torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0,
-            graph_points, topo_samples
-        )
+        return {
+            'rgb': torch.tensor(rgb_patch, dtype=torch.float32),
+            'keypoint_mask': torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0,
+            'road_mask': torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0,
+            
+            'graph_points': torch.tensor(graph_points, dtype=torch.float32),
+            'pairs': torch.tensor(pairs, dtype=torch.int32),
+            'connected': torch.tensor(connected, dtype=torch.bool),
+            'valid': torch.tensor(valid, dtype=torch.bool),
+        }
 
 
 if __name__ == '__main__':
