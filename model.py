@@ -22,6 +22,106 @@ import pprint
 import torchvision
 
 
+class BilinearSampler(nn.Module):
+    def __init__(self, config):
+        super(BilinearSampler, self).__init__()
+        self.config = config
+
+    def forward(self, feature_maps, sample_points):
+        """
+        Args:
+            feature_maps (Tensor): The input feature tensor of shape [B, D, H, W].
+            sample_points (Tensor): The 2D sample points of shape [B, N_points, 2],
+                                    each point in the range [-1, 1], format (x, y).
+        Returns:
+            Tensor: Sampled feature vectors of shape [B, N_points, D].
+        """
+        B, D, H, W = feature_maps.size()
+        _, N_points, _ = sample_points.size()
+
+        # normalize cooridinates to (-1, 1) for grid_sample
+        sample_points = (sample_points / self.config.PATCH_SIZE) * 2.0 - 1.0
+        
+        # Normalize sample_points from [B, N_points, 2] to [B, N_points, H, W] for grid_sample
+        # Note: grid_sample expects grid in format [N, H_out, W_out, 2]
+        sample_points = sample_points.unsqueeze(2)
+        
+        # Permute feature_maps to [B, H, W, D] to match grid_sample's expected input
+        feature_maps = feature_maps.permute(0, 2, 3, 1)
+        
+        # Use grid_sample for bilinear sampling. Align_corners set to False to use -1 to 1 grid space.
+        sampled_features = F.grid_sample(feature_maps, sample_points, mode='bilinear', align_corners=False)
+        
+        # sampled_features is [B, H, W, D] where H and W are both 1 since we sampled specific points
+        # Reshape to [B, N_points, D] to match expected output
+        sampled_features = sampled_features.permute(0, 3, 1, 2)
+        sampled_features = sampled_features.reshape(B, D, N_points)
+        
+        return sampled_features
+    
+
+class TopoNet(nn.Module):
+    def __init__(self, feature_dim):
+        super(TopoNet, self).__init__()
+        self.hidden_dim = 128
+        self.heads = 4
+        self.num_attn_layers = 3
+
+        self.feature_proj = nn.Linear(feature_dim, self.hidden_dim)
+        self.pair_proj = nn.Linear(2 * self.hidden_dim, self.hidden_dim)
+
+        # Create Transformer Encoder Layer
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.hidden_dim,
+            nhead=self.heads,
+            dim_feedforward=self.hidden_dim,
+            dropout=0.1,
+            activation='relu',
+            batch_first=True  # Input format is [batch size, sequence length, features]
+        )
+        
+        # Stack the Transformer Encoder Layers
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_attn_layers)
+        self.output_proj = nn.Linear(self.hidden_dim, 1)
+
+    def forward(self, points, point_features, pairs, pairs_valid):
+        # points: [B, N_points, 2]
+        # point_features: [B, N_points, D]
+        # pairs: [B, N_samples, N_pairs, 2]
+        # pairs_valid: [B, N_samples, N_pairs]
+        
+        point_features = F.relu(self.feature_proj(point_features))
+        # gathers pairs
+        batch_size, n_samples, n_pairs, _ = pairs.shape
+        pairs = pairs.view(batch_size, -1, 2)
+        
+        batch_indices = torch.arange(batch_size).view(-1, 1).expand(-1, n_samples * n_pairs)
+        # Use advanced indexing to fetch the corresponding feature vectors
+        # [B, N_samples * N_pairs, D]
+        src_features = point_features[batch_indices, pairs[:, :, 0]]
+        tgt_features = point_features[batch_indices, pairs[:, :, 1]]
+        # [B, N_samples * N_pairs, 2]
+        src_points = points[batch_indices, pairs[:, :, 0]]
+        tgt_points = points[batch_indices, pairs[:, :, 1]]
+        offset = tgt_points - src_points
+        # [B, N_samples * N_pairs, 2D + 2]
+        pair_features = torch.concat([src_features, tgt_features, offset], dim=2)
+        # [B, N_samples * N_pairs, D]
+        pair_features = F.relu(self.pair_proj(pair_features))
+        
+        # attn applies within each local graph sample
+        pair_features = pair_features.view(batch_size * n_samples, n_pairs, -1)
+        attn_mask = pairs_valid.view(batch_size * n_samples, n_pairs)
+        pair_features = self.transformer_encoder(pair_features, src_key_padding_mask=attn_mask)
+        pair_features = pair_features.view(batch_size, n_samples, n_pairs, -1)
+
+        # [B, N_samples, N_pairs, 1]
+        logits = self.output_proj(pair_features)
+        scores = torch.sigmoid(logits)
+        return logits, scores
+
+
+
 class _LoRA_qkv(nn.Module):
     """In Sam it is implemented as
     self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)

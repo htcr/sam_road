@@ -334,12 +334,17 @@ class CityScaleDataset(Dataset):
         
         # Sample graph labels from patch
         patch = ((begin_x, begin_y), (end_x, end_y))
-        graph_samples = self.graph_label_generators[img_idx].sample_patch(patch, rot_index)
-
+        # points are img (x, y) inside the patch.
+        graph_points, topo_samples = self.graph_label_generators[img_idx].sample_patch(patch, rot_index)
         
         # rgb: [H, W, 3] 0-255
         # masks: [H, W] 0-1
-        return torch.tensor(rgb_patch, dtype=torch.float32), torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0, torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0
+        return (
+            torch.tensor(rgb_patch, dtype=torch.float32),
+            torch.tensor(keypoint_mask_patch, dtype=torch.float32) / 255.0,
+            torch.tensor(road_mask_patch, dtype=torch.float32) / 255.0,
+            graph_points, topo_samples
+        )
 
 
 if __name__ == '__main__':
