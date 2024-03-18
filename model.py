@@ -478,6 +478,12 @@ class SAMRoad(pl.LightningModule):
         valid = valid.to(torch.int32)
         topo_gt = (1 - valid) * -1 + valid * topo_gt
         self.topo_f1.update(topo_scores, topo_gt.unsqueeze(-1))
+        
+        # DEBUG verify metric
+        # fake_topo_scores = topo_gt.unsqueeze(-1).to(torch.float32)
+        # topo_gt = (1 - valid) * -1 + valid * topo_gt
+        # self.topo_f1.update(fake_topo_scores, topo_gt.unsqueeze(-1))
+        # DEBUG verify metric
 
 
     def on_validation_epoch_end(self):
@@ -486,7 +492,7 @@ class SAMRoad(pl.LightningModule):
         topo_f1 = self.topo_f1.compute()
         self.log("keypoint_iou", keypoint_iou)
         self.log("road_iou", road_iou)
-        self.log("topo_f1", road_iou)
+        self.log("topo_f1", topo_f1)
         self.keypoint_iou.reset()
         self.road_iou.reset()
         self.topo_f1.reset()
