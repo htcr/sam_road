@@ -126,16 +126,21 @@ def create_cost_field_astar(sample_pts, road_mask, block_threshold=200):
 
     return cost_field
 
-def extract_graph(keypoint_mask, road_mask):
-    # TODO: put these in config
-    kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, 128)
-    kps_0 = nms_points(kp_candidates, kp_scores, 8)
-    kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, 128)
-    kps_1 = nms_points(kp_candidates, kp_scores, 16)
+
+def extract_graph_points(keypoint_mask, road_mask, config):
+    kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, config.ITSC_THRESHOLD)
+    kps_0 = nms_points(kp_candidates, kp_scores, config.ITSC_NMS_RADIUS)
+    kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, config.ROAD_THRESHOLD)
+    kps_1 = nms_points(kp_candidates, kp_scores, config.ROAD_NMS_RADIUS)
     # prioritize intersection points
     kp_candidates = np.concatenate([kps_0, kps_1], axis=0)
     kp_scores = np.concatenate([np.ones((kps_0.shape[0])), np.zeros((kps_1.shape[0]))], axis=0)
-    kps = nms_points(kp_candidates, kp_scores, 16)
+    kps = nms_points(kp_candidates, kp_scores, config.ROAD_NMS_RADIUS)
+    return kps
+
+
+def extract_graph_astar(keypoint_mask, road_mask, config):
+    kps = extract_graph_points(keypoint_mask, road_mask, config)
 
     # cost_field = create_cost_field(kps, road_mask)
     cost_field = create_cost_field_astar(kps, road_mask)
@@ -149,14 +154,14 @@ def extract_graph(keypoint_mask, road_mask):
     checked = set()
     for p in kps:
         # TODO: add radius to config
-        neighbor_indices = tree.query_radius(p[np.newaxis, :], r=40)[0]
+        neighbor_indices = tree.query_radius(p[np.newaxis, :], r=config.NEIGHBOR_RADIUS)[0]
         for n_idx in neighbor_indices:
             n = kps[n_idx]
             start, end = (int(p[0]), int(p[1])), (int(n[0]), int(n[1]))
             if (start, end) in checked:
                 continue
             # if is_connected_bresenham(cost_field, p, n):
-            if is_connected_astar(pathfinder, cost_field, p, n, max_path_len=40):
+            if is_connected_astar(pathfinder, cost_field, p, n, max_path_len=config.NEIGHBOR_RADIUS):
                 graph.add_edge(start, end)
             checked.add((start, end))
     return graph
@@ -205,6 +210,6 @@ if __name__ == '__main__':
     road_mask = cv2.imread(road_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
     keypoint_mask = cv2.imread(keypoint_mask_pattern.format(index), cv2.IMREAD_GRAYSCALE)
 
-    graph = extract_graph(keypoint_mask, road_mask)
+    graph = extract_graph_astar(keypoint_mask, road_mask)
     viz = visualize_image_and_graph(rgb, graph)
     cv2.imwrite('test_graph_astar_blk6_r40_m40_inms.png', viz)

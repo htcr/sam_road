@@ -399,6 +399,58 @@ class SAMRoad(pl.LightningModule):
         mask_logits = mask_logits.permute(0, 2, 3, 1)
         mask_scores = mask_scores.permute(0, 2, 3, 1)
         return mask_logits, mask_scores, topo_logits, topo_scores
+    
+    def infer_masks_and_img_features(self, rgb):
+        # rgb: [B, H, W, C]
+        # graph_points: [B, N_points, 2]
+        # pairs: [B, N_samples, N_pairs, 2]
+        # valid: [B, N_samples, N_pairs]
+
+        x = rgb.permute(0, 3, 1, 2)
+        # [B, C, H, W]
+        x = (x - self.pixel_mean) / self.pixel_std
+        # [B, D, h, w]
+        image_embeddings = self.image_encoder(x)
+        # mask_logits, mask_scores: [B, 2, H, W]
+        if self.config.USE_SAM_DECODER:
+            sparse_embeddings, dense_embeddings = self.prompt_encoder(
+                points=None, boxes=None, masks=None
+            )
+            low_res_logits, iou_predictions = self.mask_decoder(
+                image_embeddings=image_embeddings,
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=True
+            )
+            mask_logits = F.interpolate(
+                low_res_logits,
+                (self.image_encoder.img_size, self.image_encoder.img_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+            mask_scores = torch.sigmoid(mask_logits)
+        else:
+            mask_logits = self.map_decoder(image_embeddings)
+            mask_scores = torch.sigmoid(mask_logits)
+        
+        # [B, H, W, 2]
+        mask_scores = mask_scores.permute(0, 2, 3, 1)
+        return mask_scores, image_embeddings
+    
+
+    def infer_toponet(self, image_embeddings, graph_points, pairs, valid):
+        # image_embeddings: [B, D, h, w]
+        # graph_points: [B, N_points, 2]
+        # pairs: [B, N_samples, N_pairs, 2]
+        # valid: [B, N_samples, N_pairs]
+
+        ## Predicts local topology
+        point_features = self.bilinear_sampler(image_embeddings, graph_points)
+        # [B, N_sample, N_pair, 1]
+        topo_logits, topo_scores = self.topo_net(graph_points, point_features, pairs, valid)
+        return topo_scores
+
 
     def training_step(self, batch, batch_idx):
         # masks: [B, H, W]
