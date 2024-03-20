@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from utils import load_config
-from dataset import CityScaleDataset, graph_collate_fn
+from dataset import SatMapDataset, graph_collate_fn
 from model import SAMRoad
 
 import wandb
@@ -40,6 +40,8 @@ parser.add_argument(
 if __name__ == "__main__":
     args = parser.parse_args()
     config = load_config(args.config)
+    dev_run = args.dev_run or args.fast_dev_run
+
     
     # start a new wandb run to track this script
     wandb.init(
@@ -48,7 +50,7 @@ if __name__ == "__main__":
         # track hyperparameters and run metadata
         config=config,
         # disable wandb if debugging
-        mode='disabled' if (args.fast_dev_run or args.dev_run) else None
+        mode='disabled' if dev_run else None
     )
 
 
@@ -59,38 +61,7 @@ if __name__ == "__main__":
 
     net = SAMRoad(config)
 
-    train_ds, val_ds = CityScaleDataset(config, is_train=True), CityScaleDataset(config, is_train=False)
-
-    # verify data
-    """
-    from triage import visualize_image_and_graph
-    import cv2
-    for i in range(20):
-        sample = train_ds[i]
-        img_tensor, coords, edges = sample[0], sample[2].numpy(), sample[3].numpy()
-        img = recover_img(img_tensor)
-        viz = visualize_image_and_graph(img[:, :, ::-1], coords.reshape((-1, 2)), edges, 128)
-        cv2.imshow('viz', viz)
-        cv2.waitKey(0) # waits until a key is pressed
-        cv2.destroyAllWindows() # destroys the window showing image
-    import pdb
-    pdb.set_trace()
-    """ 
-    # data stats
-    """
-    n_coords, n_edges = [], []
-    for sample in val_ds:
-        coords, edges = sample[2], sample[3]
-        n_coords.append(coords.shape[0])
-        n_edges.append(edges.shape[0])
-    n_coords, n_edges = np.array(n_coords), np.array(n_edges)
-    print(f'max N coord: {np.max(n_coords)}')
-    print(f'max N edge: {np.max(n_edges)}')
-    print(f'avg N coord: {np.mean(n_coords)}')
-    print(f'avg N edge: {np.mean(n_edges)}')
-    import pdb
-    pdb.set_trace()
-    """
+    train_ds, val_ds = SatMapDataset(config, is_train=True, dev_run=dev_run), SatMapDataset(config, is_train=False, dev_run=dev_run)
 
     train_loader = DataLoader(
         train_ds,

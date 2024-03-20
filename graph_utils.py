@@ -455,13 +455,22 @@ def convert_from_nx(graph):
 
 ### igraph utils for performance
 
-def igraph_from_sat2graph_format(graph):
+def igraph_from_adj_dict(graph, coord_transform):
     # Edges will be de-duped
     nodes, edges = convert_from_sat2graph_format(graph)
-    edges = set([(min(src, tgt), max(src, tgt)) for src, tgt in edges])
     n_vertices = nodes.shape[0]
+    if n_vertices == 0:
+        nodes = np.zeros((0, 2), dtype=nodes.dtype)
+    edges = set([(min(src, tgt), max(src, tgt)) for src, tgt in edges])
     g = ig.Graph(n_vertices, list(edges))
-    g.vs['point'] = nodes[:, ::-1]  # to xy
+    try:
+        g.vs['point'] = coord_transform(nodes)  # to xy
+    except Exception:
+        print("==================")
+        print(nodes.shape)
+        print(nodes)
+        import pdb
+        pdb.set_trace()
     return g
 
 def get_line_bbox(line):
@@ -707,10 +716,10 @@ class TestGraphUtils(unittest.TestCase):
             (1, 2) : [(3, 4), (5, 6)],
             (3, 4) : [(1, 2), (5, 6)],
         }
-        g = igraph_from_sat2graph_format(adj)
+        rc2xy = lambda x : x[:, ::-1]
+        g = igraph_from_adj_dict(adj, rc2xy)
         self.assertEqual(len(g.es), 3)
         self.assertEqual(len(g.vs), 3)
-        # TODO: flipped due to rc->xy this is messy
         self.assertEqual(g.vs[0]['point'][0], 2)
         self.assertEqual(g.vs[0]['point'][1], 1)
 
@@ -720,10 +729,10 @@ class TestGraphUtils(unittest.TestCase):
             (2, -2) : [(2, 10), ],
             (10, 1) : [(20, 1), ],
         }
-        g = igraph_from_sat2graph_format(adj)
+        rc2xy = lambda x : x[:, ::-1]
+        g = igraph_from_adj_dict(adj, rc2xy)
         pts = find_crossover_points(g)
         self.assertEqual(len(pts), 1)
-        # TODO: flipped due to rc->xy this is messy
         gt = np.array([1.0, 2.0])
         pd = np.array(pts[0])
         np.testing.assert_almost_equal(gt, pd)
@@ -733,7 +742,8 @@ class TestGraphUtils(unittest.TestCase):
             (0, 0) : [(10, 0), ],
             (10, 0) : [(20, 0), ]
         }
-        g = igraph_from_sat2graph_format(adj)
+        rc2xy = lambda x : x[:, ::-1]
+        g = igraph_from_adj_dict(adj, rc2xy)
         g1 = subdivide_graph(g, resolution=2.0)
         self.assertEqual(len(g1.vs['point']), 11)
         self.assertEqual(len(g1.es), 10)

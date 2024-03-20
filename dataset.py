@@ -9,9 +9,9 @@ import scipy
 import pickle
 import os
 import addict
+import json
 
-IMAGE_SIZE = 2048
-SAMPLE_MARGIN = 64
+
 
 def read_rgb_img(path):
     bgr = cv2.imread(path)
@@ -39,6 +39,20 @@ def cityscale_data_partition():
     return indrange_train, indrange_validation, indrange_test
 
 
+def spacenet_data_partition():
+    # dataset partition
+    with open('./spacenet/data_split.json','r') as jf:
+        data_list = json.load(jf)
+        # data_list = data_list['test'] + data_list['validation'] + data_list['train']
+    # train_list = [tile_index for _, tile_index in data_list['train']]
+    # val_list = [tile_index for _, tile_index in data_list['validation']]
+    # test_list = [tile_index for _, tile_index in data_list['test']]
+    train_list = data_list['train']
+    val_list = data_list['validation']
+    test_list = data_list['test']
+    return train_list, val_list, test_list
+
+
 def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, patches_per_edge):
     patch_info = []
     sample_min = sample_margin
@@ -54,11 +68,12 @@ def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, p
 
 
 class GraphLabelGenerator():
-    def __init__(self, config, full_graph):
+    def __init__(self, config, full_graph, coord_transform):
         self.config = config
         # full_graph: sat2graph format
+        # coord_transform: lambda, [N, 2] array -> [N, 2] array
         # convert to igraph for high performance
-        self.full_graph_origin = graph_utils.igraph_from_sat2graph_format(full_graph)
+        self.full_graph_origin = graph_utils.igraph_from_adj_dict(full_graph, coord_transform)
         # find crossover points, we'll avoid predicting these as keypoints
         self.crossover_points = graph_utils.find_crossover_points(self.full_graph_origin)
         # subdivide version
@@ -220,9 +235,17 @@ def test_graph_label_generator():
     if not os.path.exists('debug'):
         os.mkdir('debug')
 
-    rgb_path = './cityscale/20cities/region_166_sat.png'
-    # Load GT Graph
-    gt_graph = pickle.load(open(f"./cityscale/20cities/region_166_refine_gt_graph.p",'rb'))
+    dataset = 'spacenet'
+    if dataset == 'cityscale':
+        rgb_path = './cityscale/20cities/region_166_sat.png'
+        # Load GT Graph
+        gt_graph = pickle.load(open(f"./cityscale/20cities/region_166_refine_gt_graph.p",'rb'))
+        coord_transform = lambda v : v[:, ::-1]
+    elif dataset == 'spacenet':
+        rgb_path = 'spacenet/RGB_1.0_meter/AOI_4_Shanghai_1061__rgb.png'
+        # Load GT Graph
+        gt_graph = pickle.load(open(f"spacenet/RGB_1.0_meter/AOI_4_Shanghai_1061__gt_graph.p",'rb'))
+        coord_transform = lambda v : np.stack([v[:, 1], 400 - v[:, 0]], axis=1)
     rgb = read_rgb_img(rgb_path)
     config = addict.Dict()
     config.PATCH_SIZE = 256
@@ -230,8 +253,8 @@ def test_graph_label_generator():
     config.TOPO_SAMPLE_NUM = 128
     config.NEIGHBOR_RADIUS = 64
     config.MAX_NEIGHBOR_QUERIES = 16
-    gen = GraphLabelGenerator(config, gt_graph)
-    patch = ((x0, y0), (x1, y1)) = ((64+512, 64), (64+512+config.PATCH_SIZE, 64+config.PATCH_SIZE))
+    gen = GraphLabelGenerator(config, gt_graph, coord_transform)
+    patch = ((x0, y0), (x1, y1)) = ((64, 64), (64+config.PATCH_SIZE, 64+config.PATCH_SIZE))
     test_num = 64
     for i in range(test_num):
         rot_index = np.random.randint(0, 4)
@@ -277,17 +300,40 @@ def graph_collate_fn(batch):
 
 
 
-class CityScaleDataset(Dataset):
-    def __init__(self, config, is_train):
+class SatMapDataset(Dataset):
+    def __init__(self, config, is_train, dev_run=False):
         self.config = config
         
-        rgb_pattern = './cityscale/20cities/region_{}_sat.png'
-        keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
-        road_mask_pattern = './cityscale/processed/road_mask_{}.png'
-        gt_graph_pattern = './cityscale/20cities/region_{}_refine_gt_graph.p'
-        
+        assert self.config.DATASET in {'cityscale', 'spacenet'}
+        if self.config.DATASET == 'cityscale':
+            self.IMAGE_SIZE = 2048
+            self.SAMPLE_MARGIN = 64
 
-        train, val, test = cityscale_data_partition()
+            rgb_pattern = './cityscale/20cities/region_{}_sat.png'
+            keypoint_mask_pattern = './cityscale/processed/keypoint_mask_{}.png'
+            road_mask_pattern = './cityscale/processed/road_mask_{}.png'
+            gt_graph_pattern = './cityscale/20cities/region_{}_refine_gt_graph.p'
+            
+            train, val, test = cityscale_data_partition()
+
+            # coord-transform = (r, c) -> (x, y)
+            # takes [N, 2] points
+            coord_transform = lambda v : v[:, ::-1]
+
+        elif self.config.DATASET == 'spacenet':
+            self.IMAGE_SIZE = 400
+            self.SAMPLE_MARGIN = 0
+
+            rgb_pattern = './spacenet/RGB_1.0_meter/{}__rgb.png'
+            keypoint_mask_pattern = './spacenet/processed/keypoint_mask_{}.png'
+            road_mask_pattern = './spacenet/processed/road_mask_{}.png'
+            gt_graph_pattern = './spacenet/RGB_1.0_meter/{}__gt_graph.p'
+            
+            train, val, test = spacenet_data_partition()
+
+            # coord-transform ??? -> (x, y)
+            # takes [N, 2] points
+            coord_transform = lambda v : np.stack([v[:, 1], 400 - v[:, 0]], axis=1)
 
         self.is_train = is_train
 
@@ -303,7 +349,8 @@ class CityScaleDataset(Dataset):
         self.graph_label_generators = []
 
         ##### FAST DEBUG
-        tile_indices = tile_indices[:4]
+        if dev_run:
+            tile_indices = tile_indices[:4]
         ##### FAST DEBUG
 
         for tile_idx in tile_indices:
@@ -311,31 +358,40 @@ class CityScaleDataset(Dataset):
             rgb_path = rgb_pattern.format(tile_idx)
             road_mask_path = road_mask_pattern.format(tile_idx)
             keypoint_mask_path = keypoint_mask_pattern.format(tile_idx)
+
+            # graph label gen
+            # gt graph: dict for adj list, for cityscale set keys are (r, c) nodes, values are list of (r, c) nodes
+            # I don't know what coord system spacenet uses but we convert them all to (x, y)
+            gt_graph_adj = pickle.load(open(gt_graph_pattern.format(tile_idx),'rb'))
+            if len(gt_graph_adj) == 0:
+                print(f'===== skipped empty tile {tile_idx} =====')
+                continue
+
             self.rgbs.append(read_rgb_img(rgb_path))
             self.road_masks.append(cv2.imread(road_mask_path, cv2.IMREAD_GRAYSCALE))
             self.keypoint_masks.append(cv2.imread(keypoint_mask_path, cv2.IMREAD_GRAYSCALE))
-
-            # graph label gen
-            # gt graph: dict for adj list, keys are (r, c) nodes, values are list of (r, c) nodes
-            gt_graph_adj = pickle.load(open(gt_graph_pattern.format(tile_idx),'rb'))
-            graph_label_generator = GraphLabelGenerator(config, gt_graph_adj)
+            graph_label_generator = GraphLabelGenerator(config, gt_graph_adj, coord_transform)
             self.graph_label_generators.append(graph_label_generator)
             
         
-        self.sample_min = SAMPLE_MARGIN
-        self.sample_max = IMAGE_SIZE - (self.config.PATCH_SIZE + SAMPLE_MARGIN)
+        self.sample_min = self.SAMPLE_MARGIN
+        self.sample_max = self.IMAGE_SIZE - (self.config.PATCH_SIZE + self.SAMPLE_MARGIN)
 
         if not self.is_train:
-            eval_patches_per_edge = math.ceil((IMAGE_SIZE - 2 * SAMPLE_MARGIN) / self.config.PATCH_SIZE)
+            eval_patches_per_edge = math.ceil((self.IMAGE_SIZE - 2 * self.SAMPLE_MARGIN) / self.config.PATCH_SIZE)
             self.eval_patches = []
             for i in range(len(tile_indices)):
                 self.eval_patches += get_patch_info_one_img(
-                    i, IMAGE_SIZE, SAMPLE_MARGIN, self.config.PATCH_SIZE, eval_patches_per_edge
+                    i, self.IMAGE_SIZE, self.SAMPLE_MARGIN, self.config.PATCH_SIZE, eval_patches_per_edge
                 )
 
     def __len__(self):
         if self.is_train:
-            return (IMAGE_SIZE // self.config.PATCH_SIZE)**2 * 2500
+            # Pixel seen in one epoch ~ 17 x total pixels in training set
+            if self.config.DATASET == 'cityscale':
+                return max(1, int(self.IMAGE_SIZE / self.config.PATCH_SIZE)) ** 2 * 2500
+            elif self.config.DATASET == 'spacenet':
+                return 84667
         else:
             return len(self.eval_patches)
 
@@ -369,15 +425,6 @@ class CityScaleDataset(Dataset):
         # points are img (x, y) inside the patch.
         graph_points, topo_samples = self.graph_label_generators[img_idx].sample_patch(patch, rot_index)
         
-        ### All-invalid samples will cause NaN due to all-invalid attn mask. Their loss will be
-        # ignored anyway, so we flip the mask to all-true for these samples
-        # filtered_topo_samples = []
-        # for pairs, connected, valid in topo_samples:
-        #     if not any(valid):
-        #         valid = [True] * len(valid)
-        #     filtered_topo_samples.append((pairs, connected, valid))
-        # topo_samples = filtered_topo_samples
-        
         pairs, connected, valid = zip(*topo_samples)
         
         # rgb: [H, W, 3] 0-255
@@ -396,3 +443,7 @@ class CityScaleDataset(Dataset):
 
 if __name__ == '__main__':
     test_graph_label_generator()
+    # train, val, test = cityscale_data_partition()
+    # print(f'cityscale train {len(train)} val {len(val)} test {len(test)}')
+    # train, val, test = spacenet_data_partition()
+    # print(f'spacenet train {len(train)} val {len(val)} test {len(test)}')
