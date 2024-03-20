@@ -120,9 +120,8 @@ class GraphLabelGenerator():
         if len(patch_indices) == 0:
             # print("==== Patch is empty ====")
             # this shall be rare, but if no points in side the patch, return null stuff
-            # TODO: in config
-            sample_num = 512
-            max_nbr_queries = 16
+            sample_num = self.config.TOPO_SAMPLE_NUM
+            max_nbr_queries = self.config.MAX_NEIGHBOR_QUERIES
             fake_points = np.array([[0.0, 0.0]], dtype=np.float32)
             fake_sample = ([[0, 0]] * max_nbr_queries, [False] * max_nbr_queries, [False] * max_nbr_queries)
             return fake_points, [fake_sample] * sample_num
@@ -135,8 +134,7 @@ class GraphLabelGenerator():
         nms_scores = np.random.uniform(low=0.9, high=1.0, size=patch_indices.shape[0])
         nms_score_override = self.nms_score_override[patch_indices]
         nms_scores = np.maximum(nms_scores, nms_score_override)
-        # TODO: use config to align with inference
-        nms_radius = 16
+        nms_radius = self.config.ROAD_NMS_RADIUS
         
         # kept_indces are into the patch_points array
         nmsed_points, kept_indices = graph_utils.nms_points(patch_points, nms_scores, radius=nms_radius, return_indices=True)
@@ -145,8 +143,7 @@ class GraphLabelGenerator():
         nmsed_point_num = nmsed_points.shape[0]
 
 
-        # TODO: this shall be in config and tuned
-        sample_num = 512  # has to be greater than 1
+        sample_num = self.config.TOPO_SAMPLE_NUM  # has to be greater than 1
         sample_weights = self.sample_weights[nmsed_indices]
         # indices into the nmsed points in the patch
         sample_indices_in_nmsed = np.random.choice(
@@ -155,9 +152,8 @@ class GraphLabelGenerator():
         # indices into the subdivided graph
         sample_indices = nmsed_indices[sample_indices_in_nmsed]
         
-        # TODO: in config
-        radius = 64
-        max_nbr_queries = 16  # has to be greater than 1
+        radius = self.config.NEIGHBOR_RADIUS
+        max_nbr_queries = self.config.MAX_NEIGHBOR_QUERIES  # has to be greater than 1
         nmsed_kdtree = scipy.spatial.KDTree(nmsed_points)
         sampled_points = self.subdivide_points[sample_indices, :]
         # [n_sample, n_nbr]
@@ -229,7 +225,11 @@ def test_graph_label_generator():
     gt_graph = pickle.load(open(f"./cityscale/20cities/region_166_refine_gt_graph.p",'rb'))
     rgb = read_rgb_img(rgb_path)
     config = addict.Dict()
-    config.PATCH_SIZE = 512
+    config.PATCH_SIZE = 256
+    config.ROAD_NMS_RADIUS = 16
+    config.TOPO_SAMPLE_NUM = 128
+    config.NEIGHBOR_RADIUS = 64
+    config.MAX_NEIGHBOR_QUERIES = 16
     gen = GraphLabelGenerator(config, gt_graph)
     patch = ((x0, y0), (x1, y1)) = ((64+512, 64), (64+512+config.PATCH_SIZE, 64+config.PATCH_SIZE))
     test_num = 64
@@ -303,7 +303,7 @@ class CityScaleDataset(Dataset):
         self.graph_label_generators = []
 
         ##### FAST DEBUG
-        # tile_indices = tile_indices[:4]
+        tile_indices = tile_indices[:4]
         ##### FAST DEBUG
 
         for tile_idx in tile_indices:

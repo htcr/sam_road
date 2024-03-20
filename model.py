@@ -173,13 +173,29 @@ class SAMRoad(pl.LightningModule):
         super().__init__()
         self.config = config
 
-        ### SAM config (B)
-        encoder_embed_dim=768
-        encoder_depth=12
-        encoder_num_heads=12
-        encoder_global_attn_indexes=[2, 5, 8, 11]
-        ###
-
+        assert config.SAM_VERSION in {'vit_b', 'vit_l', 'vit_h'}
+        if config.SAM_VERSION == 'vit_b':
+            ### SAM config (B)
+            encoder_embed_dim=768
+            encoder_depth=12
+            encoder_num_heads=12
+            encoder_global_attn_indexes=[2, 5, 8, 11]
+            ###
+        elif config.SAM_VERSION == 'vit_l':
+            ### SAM config (L)
+            encoder_embed_dim=1024
+            encoder_depth=24
+            encoder_num_heads=16
+            encoder_global_attn_indexes=[5, 11, 17, 23]
+            ###
+        elif config.SAM_VERSION == 'vit_h':
+            ### SAM config (H)
+            encoder_embed_dim=1280
+            encoder_depth=32
+            encoder_num_heads=16
+            encoder_global_attn_indexes=[7, 15, 23, 31]
+            ###
+            
         prompt_embed_dim = 256
         # SAM default is 1024
         image_size = config.PATCH_SIZE
