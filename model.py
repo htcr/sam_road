@@ -57,8 +57,10 @@ class BilinearSampler(nn.Module):
     
 
 class TopoNet(nn.Module):
-    def __init__(self, feature_dim):
+    def __init__(self, config, feature_dim):
         super(TopoNet, self).__init__()
+        self.config = config
+
         self.hidden_dim = 128
         self.heads = 4
         self.num_attn_layers = 3
@@ -77,7 +79,8 @@ class TopoNet(nn.Module):
         )
         
         # Stack the Transformer Encoder Layers
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_attn_layers)
+        if self.config.TOPONET_VERSION != 'no_transformer':
+            self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_attn_layers)
         self.output_proj = nn.Linear(self.hidden_dim, 1)
 
     def forward(self, points, point_features, pairs, pairs_valid):
@@ -100,8 +103,17 @@ class TopoNet(nn.Module):
         src_points = points[batch_indices, pairs[:, :, 0]]
         tgt_points = points[batch_indices, pairs[:, :, 1]]
         offset = tgt_points - src_points
+
+        ## ablation study
         # [B, N_samples * N_pairs, 2D + 2]
-        pair_features = torch.concat([src_features, tgt_features, offset], dim=2)
+        if self.config.TOPONET_VERSION == 'no_tgt_features':
+            pair_features = torch.concat([src_features, torch.zeros_like(tgt_features), offset], dim=2)
+        if self.config.TOPONET_VERSION == 'no_offset':
+            pair_features = torch.concat([src_features, tgt_features, torch.zeros_like(offset)], dim=2)
+        else:
+            pair_features = torch.concat([src_features, tgt_features, offset], dim=2)
+        
+        
         # [B, N_samples * N_pairs, D]
         pair_features = F.relu(self.pair_proj(pair_features))
         
@@ -117,7 +129,9 @@ class TopoNet(nn.Module):
 
         padding_mask = ~pairs_valid
         
-        pair_features = self.transformer_encoder(pair_features, src_key_padding_mask=padding_mask)
+        ## ablation study
+        if self.config.TOPONET_VERSION != 'no_transformer':
+            pair_features = self.transformer_encoder(pair_features, src_key_padding_mask=padding_mask)
         pair_features = pair_features.view(batch_size, n_samples, n_pairs, -1)
 
         # [B, N_samples, N_pairs, 1]
@@ -271,7 +285,7 @@ class SAMRoad(pl.LightningModule):
         
         #### TOPONet
         self.bilinear_sampler = BilinearSampler(config)
-        self.topo_net = TopoNet(encoder_output_dim)
+        self.topo_net = TopoNet(config, encoder_output_dim)
 
 
         #### LORA

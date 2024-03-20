@@ -19,6 +19,7 @@ USE_SAM_DECODER: False
 # TOPONET
 # sample per patch
 TOPO_SAMPLE_NUM: 512
+TOPONET_VERSION: 'normal'
 
 # Inference
 INFER_BATCH_SIZE: 64
