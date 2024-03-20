@@ -21,6 +21,8 @@ import wandb
 import pprint
 import torchvision
 
+import vitdet
+
 
 class BilinearSampler(nn.Module):
     def __init__(self, config):
@@ -208,20 +210,26 @@ class SAMRoad(pl.LightningModule):
         self.register_buffer("pixel_mean", torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1), False)
         self.register_buffer("pixel_std", torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1), False)
 
-        self.image_encoder = ImageEncoderViT(
-            depth=encoder_depth,
-            embed_dim=encoder_embed_dim,
-            img_size=image_size,
-            mlp_ratio=4,
-            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-            num_heads=encoder_num_heads,
-            patch_size=vit_patch_size,
-            qkv_bias=True,
-            use_rel_pos=True,
-            global_attn_indexes=encoder_global_attn_indexes,
-            window_size=14,
-            out_chans=prompt_embed_dim
-        )
+        if self.config.NO_SAM:
+            ### im1k + mae pre-trained vitb
+            self.image_encoder = vitdet.VITBEncoder(image_size=image_size, output_feature_dim=prompt_embed_dim)
+            self.matched_param_names = self.image_encoder.matched_param_names
+        else:
+            ### SAM vitb
+            self.image_encoder = ImageEncoderViT(
+                depth=encoder_depth,
+                embed_dim=encoder_embed_dim,
+                img_size=image_size,
+                mlp_ratio=4,
+                norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                num_heads=encoder_num_heads,
+                patch_size=vit_patch_size,
+                qkv_bias=True,
+                use_rel_pos=True,
+                global_attn_indexes=encoder_global_attn_indexes,
+                window_size=14,
+                out_chans=prompt_embed_dim
+            )
 
         if self.config.USE_SAM_DECODER:
             # SAM DECODER
@@ -324,6 +332,9 @@ class SAMRoad(pl.LightningModule):
         self.road_iou = BinaryJaccardIndex(threshold=0.5)
         self.topo_f1 = F1Score(task='binary', threshold=0.5, ignore_index=-1)
 
+
+        if self.config.NO_SAM:
+            return
         with open(config.SAM_CKPT_PATH, "rb") as f:
             ckpt_state_dict = torch.load(f)
 
@@ -346,7 +357,7 @@ class SAMRoad(pl.LightningModule):
             print("###### Mismatched params ######")
             pprint.pprint(mismatch_names)
 
-            self.matched_sam_param_names = set(matched_names)
+            self.matched_param_names = set(matched_names)
             self.load_state_dict(state_dict_to_load, strict=False)
 
     def resize_sam_pos_embed(self, state_dict, image_size, vit_patch_size, encoder_global_attn_indexes):
@@ -571,7 +582,7 @@ class SAMRoad(pl.LightningModule):
 
         if not self.config.FREEZE_ENCODER and not self.config.ENCODER_LORA:
             encoder_params = {
-                'params': [p for k, p in self.image_encoder.named_parameters() if 'image_encoder.'+k in self.matched_sam_param_names],
+                'params': [p for k, p in self.image_encoder.named_parameters() if 'image_encoder.'+k in self.matched_param_names],
                 'lr': self.config.BASE_LR * self.config.ENCODER_LR_FACTOR,
             }
             param_dicts.append(encoder_params)
@@ -585,11 +596,11 @@ class SAMRoad(pl.LightningModule):
         
         if self.config.USE_SAM_DECODER:
             matched_decoder_params = {
-                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k in self.matched_sam_param_names],
+                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k in self.matched_param_names],
                 'lr': self.config.BASE_LR * 0.1
             }
             fresh_decoder_params = {
-                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k not in self.matched_sam_param_names],
+                'params': [p for k, p in self.mask_decoder.named_parameters() if 'mask_decoder.'+k not in self.matched_param_names],
                 'lr': self.config.BASE_LR
             }
             decoder_params = [matched_decoder_params, fresh_decoder_params]
