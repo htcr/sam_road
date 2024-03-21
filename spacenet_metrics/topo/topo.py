@@ -227,7 +227,7 @@ def TOPOGenerateStartingPoints(OSMMap, check = True, density = 0.00050, region =
         svgEdges.append((OSMMap.nodes[edge[0]][0],OSMMap.nodes[edge[0]][1], OSMMap.nodes[edge[1]][0], OSMMap.nodes[edge[1]][1]))
 
 
-    # showTOPO.RenderRegion(result, svgEdges, region, "gt.svg")
+    showTOPO.RenderRegion(result, svgEdges, region, "gt.svg")
 
 
 
@@ -362,8 +362,7 @@ def TOPOGeneratePairs(GPSMap, OSMMap, OSMList, threshold = 0.00010, region = Non
 
 
     if region is not None:
-        # showTOPO.RenderRegion2(OSMList, matchedLoc, svgEdges, region, "coverage.svg")
-        pass
+        showTOPO.RenderRegion2(OSMList, matchedLoc, svgEdges, region, "coverage.svg")
 
 
 
@@ -404,7 +403,7 @@ def TOPOGenerateList(GPSMap, OSMMap, check = True, threshold = 0.00010, region =
 
     candidateNode = {}
 
-    for edgeId, edge in GPSMap.edges.iteritems():
+    for edgeId, edge in GPSMap.edges.items():
 
         n1 = edge[0]
         n2 = edge[1]
@@ -506,7 +505,7 @@ def TOPO(GPSMap, OSMMap, step = 0.00005, r = 0.00300, num = 1000, threshold = 0.
     
     candidateNode = {}
 
-    for edgeId, edge in GPSMap.edges.iteritems():
+    for edgeId, edge in GPSMap.edges.items():
 
         n1 = edge[0]
         n2 = edge[1]
@@ -701,7 +700,7 @@ def TOPOWithPairs(GPSMap, OSMMap, GPSList, OSMList, step = 0.00005, r = 0.00300,
 
     # print(len(OSMList), len(GPSList.keys()))
 
-    rrr = float(len(GPSList.keys())) / float(len(OSMList))
+    # rrr = float(len(GPSList.keys())) / float(len(OSMList))
 
     # print("Overall Coverage", rrr)
 
@@ -809,7 +808,7 @@ def TOPOWithPairs(GPSMap, OSMMap, GPSList, OSMList, step = 0.00005, r = 0.00300,
 
             matchedNum = len(matches.keys()) / 2
 
-            # for k,v in matches.iteritems():
+            # for k,v in matches.items():
             # 	if (k,v) in cost_map.keys():
             # 		soft_matchedNum += max(min(((threshold - cost_map[(k,v)]) / threshold),1.0),0.0)
 
@@ -887,7 +886,7 @@ def TOPOWithPairs(GPSMap, OSMMap, GPSList, OSMList, step = 0.00005, r = 0.00300,
 
             matchedNum = len(matches.keys()) / 2
 
-            # for k,v in matches.iteritems():
+            # for k,v in matches.items():
             # 	if (k,v) in cost_map.keys():
             # 		soft_matchedNum += max(min(((threshold - cost_map[(k,v)]) / threshold),1.0),0.0)
 
@@ -981,7 +980,7 @@ def TOPOWithPairsNew(GPSMap, OSMMap, GPSList, OSMList, step = 0.00005, r = 0.003
 
     number_of_holes = []
 
-    for k,itemGPS in GPSList.iteritems():
+    for k,itemGPS in GPSList.items():
 
 
         itemOSM = OSMList[k]
@@ -1080,7 +1079,7 @@ def TOPOWithPairsNew(GPSMap, OSMMap, GPSList, OSMList, step = 0.00005, r = 0.003
         if soft == False:
             cost = 0
 
-        # showTOPO.RenderSVG(marbles, holes_bidirection, matched_marbles,matched_holes,  lat, lon, 0.00500, "svg/"+svgname +str(i)+"_"+str(lat)+"_"+str(lon)+".svg")
+        showTOPO.RenderSVG(marbles, holes_bidirection, matched_marbles,matched_holes,  lat, lon, 0.00500, "svg/"+svgname +str(i)+"_"+str(lat)+"_"+str(lon)+".svg")
 
         score = cost + (len(marbles) - matchedNum) * threshold * 1.15
         total_score += score
@@ -1140,7 +1139,7 @@ def TOPOWithList(GPSMap, OSMMap, pairs, step = 0.00005, r = 0.00300, threshold =
         holes = OSMMap.TOPOWalk(min_node, step = step, r = r, direction = False)
 
 
-        # showTOPO.RenderSVG(marbles, holes, lat, lon, 0.00500, "svg/"+str(i)+"_"+str(lat)+"_"+str(lon)+".svg")
+        showTOPO.RenderSVG(marbles, holes, lat, lon, 0.00500, "svg/"+str(i)+"_"+str(lat)+"_"+str(lon)+".svg")
 
 
         matchedNum = 0

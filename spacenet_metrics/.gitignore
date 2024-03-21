@@ -1,0 +1,5 @@
+*.graph
+*.p
+results
+sat2graph
+*.svg

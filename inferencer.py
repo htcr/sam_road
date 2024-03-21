@@ -314,6 +314,9 @@ if __name__ == "__main__":
         cv2.imwrite(os.path.join(viz_save_dir, f'{img_id}.png'), viz_img)
 
         # Saves the large map
+        if config.DATASET == 'spacenet':
+            # r, c -> ???
+            pred_nodes = np.stack([400 - pred_nodes[:, 0], pred_nodes[:, 1]], axis=1)
         large_map_sat2graph_format = graph_utils.convert_to_sat2graph_format(pred_nodes, pred_edges)
         graph_save_dir = os.path.join(output_dir, 'graph')
         if not os.path.exists(graph_save_dir):
