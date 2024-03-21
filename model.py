@@ -132,11 +132,14 @@ class TopoNet(nn.Module):
         ## ablation study
         if self.config.TOPONET_VERSION != 'no_transformer':
             pair_features = self.transformer_encoder(pair_features, src_key_padding_mask=padding_mask)
+        
+        ## Seems like at inference time, the returned n_pairs heres might be less - it's the
+        # max num of valid pairs across all samples in the batch
+        _, n_pairs, _ = pair_features.shape
         pair_features = pair_features.view(batch_size, n_samples, n_pairs, -1)
 
         # [B, N_samples, N_pairs, 1]
         logits = self.output_proj(pair_features)
-        # logits = torch.where(torch.isnan(logits), 0.0, logits)
 
         scores = torch.sigmoid(logits)
 

@@ -307,6 +307,7 @@ class SatMapDataset(Dataset):
         assert self.config.DATASET in {'cityscale', 'spacenet'}
         if self.config.DATASET == 'cityscale':
             self.IMAGE_SIZE = 2048
+            # TODO: SAMPLE_MARGIN here is for training, the one in config is for inference
             self.SAMPLE_MARGIN = 64
 
             rgb_pattern = './cityscale/20cities/region_{}_sat.png'
