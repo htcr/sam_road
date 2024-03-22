@@ -128,9 +128,9 @@ def create_cost_field_astar(sample_pts, road_mask, block_threshold=200):
 
 
 def extract_graph_points(keypoint_mask, road_mask, config):
-    kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, config.ITSC_THRESHOLD)
+    kp_candidates, kp_scores = get_points_and_scores_from_mask(keypoint_mask, config.ITSC_THRESHOLD * 255)
     kps_0 = nms_points(kp_candidates, kp_scores, config.ITSC_NMS_RADIUS)
-    kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, config.ROAD_THRESHOLD)
+    kp_candidates, kp_scores = get_points_and_scores_from_mask(road_mask, config.ROAD_THRESHOLD * 255)
     kps_1 = nms_points(kp_candidates, kp_scores, config.ROAD_NMS_RADIUS)
     # prioritize intersection points
     kp_candidates = np.concatenate([kps_0, kps_1], axis=0)

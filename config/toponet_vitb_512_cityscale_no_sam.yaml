@@ -26,9 +26,17 @@ INFER_BATCH_SIZE: 64
 SAMPLE_MARGIN: 64
 INFER_PATCHES_PER_EDGE: 16
 
-# [0, 255]
-ITSC_THRESHOLD: 128
-ROAD_THRESHOLD: 128
+# ======= keypoint ======
+# Best threshold 0.4189453125, P=0.0 R=0.0 F1=nan <- this is just a failure, just use 0.1 to at least get some predictions
+# ======= road ======
+# Best threshold 0.172607421875, P=0.26732638478279114 R=0.45330917835235596 F1=0.3363184332847595
+# ======= topo ======
+# Best threshold 0.4375, P=0.9535335302352905 R=0.9491331577301025 F1=0.9513282775878906
+
+ITSC_THRESHOLD: 0.1
+ROAD_THRESHOLD: 0.173
+TOPO_THRESHOLD: 0.438
+
 # pixels
 ITSC_NMS_RADIUS: 8
 ROAD_NMS_RADIUS: 16

@@ -28,6 +28,9 @@ parser.add_argument(
 parser.add_argument(
     "--config", default=None, help="model config."
 )
+parser.add_argument(
+    "--output_dir", default=None, help="Name of the output dir, if not specified will use timestamp"
+)
 parser.add_argument("--device", default="cuda", help="device to use for training")
 args = parser.parse_args()
 
@@ -213,7 +216,7 @@ def infer_one_img(net, img, config):
     pred_edges = []
     for edge, score_sum in edge_scores.items():
         score = score_sum / edge_counts[edge] 
-        if score > 0.5:
+        if score > config.TOPO_THRESHOLD:
             pred_edges.append(edge)
     pred_edges = np.array(pred_edges).reshape(-1, 2)
     pred_nodes = graph_points[:, ::-1]  # to rc
@@ -256,9 +259,10 @@ if __name__ == "__main__":
         gt_graph_pattern = './spacenet/RGB_1.0_meter/{}__gt_graph.p'
     
     output_dir_prefix = './save/infer_'
-    output_dir = create_output_dir_and_save_config(output_dir_prefix, config)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if args.output_dir:
+        output_dir = create_output_dir_and_save_config(output_dir_prefix, config, specified_dir=f'./save/{args.output_dir}')
+    else:
+        output_dir = create_output_dir_and_save_config(output_dir_prefix, config)
     
     total_inference_seconds = 0.0
 

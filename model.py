@@ -8,7 +8,7 @@ import math
 import copy
 
 from functools import partial
-from torchmetrics.classification import BinaryJaccardIndex, F1Score
+from torchmetrics.classification import BinaryJaccardIndex, F1Score, BinaryPrecisionRecallCurve
 
 import lightning.pytorch as pl
 from sam.segment_anything.modeling.image_encoder import ImageEncoderViT
@@ -348,7 +348,10 @@ class SAMRoad(pl.LightningModule):
         self.keypoint_iou = BinaryJaccardIndex(threshold=0.5)
         self.road_iou = BinaryJaccardIndex(threshold=0.5)
         self.topo_f1 = F1Score(task='binary', threshold=0.5, ignore_index=-1)
-
+        # testing only, not used in training
+        self.keypoint_pr_curve = BinaryPrecisionRecallCurve(ignore_index=-1)
+        self.road_pr_curve = BinaryPrecisionRecallCurve(ignore_index=-1)
+        self.topo_pr_curve = BinaryPrecisionRecallCurve(ignore_index=-1)
 
         if self.config.NO_SAM:
             return
@@ -575,12 +578,6 @@ class SAMRoad(pl.LightningModule):
         topo_gt = (1 - valid) * -1 + valid * topo_gt
         self.topo_f1.update(topo_scores, topo_gt.unsqueeze(-1))
         
-        # DEBUG verify metric
-        # fake_topo_scores = topo_gt.unsqueeze(-1).to(torch.float32)
-        # topo_gt = (1 - valid) * -1 + valid * topo_gt
-        # self.topo_f1.update(fake_topo_scores, topo_gt.unsqueeze(-1))
-        # DEBUG verify metric
-
 
     def on_validation_epoch_end(self):
         keypoint_iou = self.keypoint_iou.compute()
@@ -592,6 +589,40 @@ class SAMRoad(pl.LightningModule):
         self.keypoint_iou.reset()
         self.road_iou.reset()
         self.topo_f1.reset()
+
+    def test_step(self, batch, batch_idx):
+        # masks: [B, H, W]
+        rgb, keypoint_mask, road_mask = batch['rgb'], batch['keypoint_mask'], batch['road_mask']
+        graph_points, pairs, valid = batch['graph_points'], batch['pairs'], batch['valid']
+
+        # masks: [B, H, W, 2] topo: [B, N_samples, N_pairs, 1]
+        mask_logits, mask_scores, topo_logits, topo_scores = self(rgb, graph_points, pairs, valid)
+
+        topo_gt, topo_loss_mask = batch['connected'].to(torch.int32), valid.to(torch.float32)
+
+        self.keypoint_pr_curve.update(mask_scores[..., 0], keypoint_mask.to(torch.int32))
+        self.road_pr_curve.update(mask_scores[..., 1], road_mask.to(torch.int32))
+        
+        valid = valid.to(torch.int32)
+        topo_gt = (1 - valid) * -1 + valid * topo_gt
+        self.topo_pr_curve.update(topo_scores, topo_gt.unsqueeze(-1).to(torch.int32))
+
+    def on_test_end(self):
+        def find_best_threshold(pr_curve_metric, category):
+            print(f'======= {category} ======')   
+            precision, recall, thresholds = pr_curve_metric.compute()
+            f1_scores = 2 * (precision * recall) / (precision + recall)
+            best_threshold_index = torch.argmax(f1_scores)
+            best_threshold = thresholds[best_threshold_index]
+            best_precision = precision[best_threshold_index]
+            best_recall = recall[best_threshold_index]
+            best_f1 = f1_scores[best_threshold_index]
+            print(f'Best threshold {best_threshold}, P={best_precision} R={best_recall} F1={best_f1}')
+        
+        print('======= Finding best thresholds ======')
+        find_best_threshold(self.keypoint_pr_curve, 'keypoint')
+        find_best_threshold(self.road_pr_curve, 'road')
+        find_best_threshold(self.topo_pr_curve, 'topo')
 
 
     def configure_optimizers(self):
