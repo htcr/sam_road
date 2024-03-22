@@ -6,21 +6,16 @@ import numpy as np
 
 
 def visualize_image_and_graph(img, nodes, edges, viz_img_size=512):
+    # img is rgb
     # Node coordinates in [0, 1], representing the normalized (r, c)
     # (r, c) -> (x, y)
     nodes = nodes[:, ::-1]
 
-    # Resize the image to the specified visualization size
+    # Resize the image to the specified visualization size, RGB->BGR
     img = cv2.resize(img, (viz_img_size, viz_img_size))
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    # Draw nodes as green squares
-    for node in nodes:
-        x, y = node * viz_img_size
-        cv2.rectangle(
-            img, (int(x) - 2, int(y) - 2), (int(x) + 2, int(y) + 2), (0, 255, 0), -1
-        )
-
-    # Draw edges as white lines
+    # Draw edges
     for edge in edges:
         start_node = nodes[edge[0]] * viz_img_size
         end_node = nodes[edge[1]] * viz_img_size
@@ -28,9 +23,14 @@ def visualize_image_and_graph(img, nodes, edges, viz_img_size=512):
             img,
             (int(start_node[0]), int(start_node[1])),
             (int(end_node[0]), int(end_node[1])),
-            (255, 255, 255),
-            1,
+            (15, 160, 253),
+            2,
         )
+    
+    # Draw nodes
+    for node in nodes:
+        x, y = node * viz_img_size
+        cv2.circle(img, (int(x), int(y)), 2, (1, 241, 255), -1)
 
     return img
 

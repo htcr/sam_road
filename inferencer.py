@@ -227,7 +227,7 @@ def infer_one_img(net, img, config):
     # pred_nodes, pred_edges = graph_utils.convert_from_nx(pred_graph)
     ### Astar graph extraction
 
-    return pred_nodes, pred_edges
+    return pred_nodes, pred_edges, fused_keypoint_mask, fused_road_mask
 
     
 
@@ -272,11 +272,10 @@ if __name__ == "__main__":
         img = read_rgb_img(rgb_pattern.format(img_id))
         start_seconds = time.time()
         # coords in (r, c)
-        pred_nodes, pred_edges = infer_one_img(net, img, config)
+        pred_nodes, pred_edges, itsc_mask, road_mask = infer_one_img(net, img, config)
         end_seconds = time.time()
         total_inference_seconds += (end_seconds - start_seconds)
 
-        # Visualizes the diff between rasterized pred/gt graphs.
         gt_graph_path = gt_graph_pattern.format(img_id)
         gt_graph = pickle.load(open(gt_graph_path, "rb"))
         gt_nodes, gt_edges = graph_utils.convert_from_sat2graph_format(gt_graph)
@@ -290,25 +289,33 @@ if __name__ == "__main__":
 
         # RGB already
         viz_img = np.copy(img)
-
         img_size = viz_img.shape[0]
-        rast_pred = triage.rasterize_graph(pred_nodes / img_size, pred_edges, img_size, dilation_radius=1)
-        rast_pred_dilate = triage.rasterize_graph(pred_nodes / img_size, pred_edges, img_size, dilation_radius=5)
-        rast_gt = triage.rasterize_graph(gt_nodes / img_size, gt_edges, img_size, dilation_radius=1)
-        rast_gt_dilate = triage.rasterize_graph(gt_nodes / img_size, gt_edges, img_size, dilation_radius=5)
 
-        fp_pred = (np.less_equal(rast_gt_dilate, 0) * np.greater(rast_pred, 0)).astype(np.uint8)
-        missed_gt = (np.less_equal(rast_pred_dilate, 0) * np.greater(rast_gt, 0)).astype(np.uint8)
+        # visualizes fused masks
+        mask_save_dir = os.path.join(output_dir, 'mask')
+        if not os.path.exists(mask_save_dir):
+            os.makedirs(mask_save_dir)
+        cv2.imwrite(os.path.join(mask_save_dir, f'{img_id}_road.png'), road_mask)
+        cv2.imwrite(os.path.join(mask_save_dir, f'{img_id}_itsc.png'), itsc_mask)
 
-        diff_img = np.array(viz_img)
-        # FP in blue, missed in red (BGR for opencv)
-        diff_img = diff_img * np.less_equal(fp_pred, 0) + fp_pred * np.array([255, 0, 0], dtype=np.uint8)
-        diff_img = diff_img * np.less_equal(missed_gt, 0) + missed_gt * np.array([0, 0, 255], dtype=np.uint8)
+        # # Visualizes the diff between rasterized pred/gt graphs.
+        # rast_pred = triage.rasterize_graph(pred_nodes / img_size, pred_edges, img_size, dilation_radius=1)
+        # rast_pred_dilate = triage.rasterize_graph(pred_nodes / img_size, pred_edges, img_size, dilation_radius=5)
+        # rast_gt = triage.rasterize_graph(gt_nodes / img_size, gt_edges, img_size, dilation_radius=1)
+        # rast_gt_dilate = triage.rasterize_graph(gt_nodes / img_size, gt_edges, img_size, dilation_radius=5)
 
-        diff_save_dir = os.path.join(output_dir, 'diff')
-        if not os.path.exists(diff_save_dir):
-            os.makedirs(diff_save_dir)
-        cv2.imwrite(os.path.join(diff_save_dir, f'{img_id}.png'), diff_img)
+        # fp_pred = (np.less_equal(rast_gt_dilate, 0) * np.greater(rast_pred, 0)).astype(np.uint8)
+        # missed_gt = (np.less_equal(rast_pred_dilate, 0) * np.greater(rast_gt, 0)).astype(np.uint8)
+
+        # diff_img = np.array(viz_img)
+        # # FP in blue, missed in red (BGR for opencv)
+        # diff_img = diff_img * np.less_equal(fp_pred, 0) + fp_pred * np.array([255, 0, 0], dtype=np.uint8)
+        # diff_img = diff_img * np.less_equal(missed_gt, 0) + missed_gt * np.array([0, 0, 255], dtype=np.uint8)
+
+        # diff_save_dir = os.path.join(output_dir, 'diff')
+        # if not os.path.exists(diff_save_dir):
+        #     os.makedirs(diff_save_dir)
+        # cv2.imwrite(os.path.join(diff_save_dir, f'{img_id}.png'), diff_img)
 
         # Visualizes merged large map
         viz_save_dir = os.path.join(output_dir, 'viz')
