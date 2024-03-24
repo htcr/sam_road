@@ -108,6 +108,14 @@ def infer_one_img(net, img, config):
     # range 0-1 -> 0-255
     fused_keypoint_mask = (fused_keypoint_mask * 255).to(torch.uint8).cpu().numpy()
     fused_road_mask = (fused_road_mask * 255).to(torch.uint8).cpu().numpy()
+
+    # ## Astar graph extraction
+    # pred_graph = graph_extraction.extract_graph_astar(fused_keypoint_mask, fused_road_mask, config)
+    # # Doing this conversion to reuse copied code
+    # pred_nodes, pred_edges = graph_utils.convert_from_nx(pred_graph)
+    # return pred_nodes, pred_edges, fused_keypoint_mask, fused_road_mask
+    # ## Astar graph extraction
+    
     
     ## Extract sample points from masks
     graph_points = graph_extraction.extract_graph_points(fused_keypoint_mask, fused_road_mask, config)
@@ -221,11 +229,7 @@ def infer_one_img(net, img, config):
     pred_edges = np.array(pred_edges).reshape(-1, 2)
     pred_nodes = graph_points[:, ::-1]  # to rc
     
-    ### Astar graph extraction
-    # pred_graph = graph_extraction.extract_graph_astar(fused_keypoint_mask, fused_road_mask)
-    # # Doing this conversion to reuse copied code
-    # pred_nodes, pred_edges = graph_utils.convert_from_nx(pred_graph)
-    ### Astar graph extraction
+    
 
     return pred_nodes, pred_edges, fused_keypoint_mask, fused_road_mask
 

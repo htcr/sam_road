@@ -24,13 +24,13 @@ def visualize_image_and_graph(img, nodes, edges, viz_img_size=512):
             (int(start_node[0]), int(start_node[1])),
             (int(end_node[0]), int(end_node[1])),
             (15, 160, 253),
-            2,
+            4,
         )
     
     # Draw nodes
     for node in nodes:
         x, y = node * viz_img_size
-        cv2.circle(img, (int(x), int(y)), 2, (1, 241, 255), -1)
+        cv2.circle(img, (int(x), int(y)), 4, (0, 255, 255), -1)
 
     return img
 

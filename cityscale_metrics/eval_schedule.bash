@@ -2,12 +2,13 @@
 
 # List of directories to process, add more as needed
 output_dirs=(
-    "cityscale_toponet_no_sam"
-    "cityscale_toponet_no_transformer"
-    "cityscale_toponet_no_offset"
-    "cityscale_toponet_no_tgt_features"
-    "cityscale_toponet_8x8"
-    "cityscale_toponet_4x4"
+    # "cityscale_toponet_no_sam"
+    # "cityscale_toponet_no_transformer"
+    # "cityscale_toponet_no_offset"
+    # "cityscale_toponet_no_tgt_features"
+    # "cityscale_toponet_8x8"
+    # "cityscale_toponet_4x4"
+    cityscale_toponet_no_itsc
 )
 
 # Base directory where the output directories are located

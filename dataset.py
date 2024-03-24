@@ -242,9 +242,9 @@ def test_graph_label_generator():
         gt_graph = pickle.load(open(f"./cityscale/20cities/region_166_refine_gt_graph.p",'rb'))
         coord_transform = lambda v : v[:, ::-1]
     elif dataset == 'spacenet':
-        rgb_path = 'spacenet/RGB_1.0_meter/AOI_4_Shanghai_1061__rgb.png'
+        rgb_path = 'spacenet/RGB_1.0_meter/AOI_2_Vegas_210__rgb.png'
         # Load GT Graph
-        gt_graph = pickle.load(open(f"spacenet/RGB_1.0_meter/AOI_4_Shanghai_1061__gt_graph.p",'rb'))
+        gt_graph = pickle.load(open(f"spacenet/RGB_1.0_meter/AOI_2_Vegas_210__gt_graph.p",'rb'))
         # gt_graph = pickle.load(open(f"spacenet/RGB_1.0_meter/AOI_4_Shanghai_1061__gt_graph_dense_spacenet.p",'rb'))
         
         coord_transform = lambda v : np.stack([v[:, 1], 400 - v[:, 0]], axis=1)
@@ -253,7 +253,7 @@ def test_graph_label_generator():
     config = addict.Dict()
     config.PATCH_SIZE = 256
     config.ROAD_NMS_RADIUS = 16
-    config.TOPO_SAMPLE_NUM = 128
+    config.TOPO_SAMPLE_NUM = 4
     config.NEIGHBOR_RADIUS = 64
     config.MAX_NEIGHBOR_QUERIES = 16
     gen = GraphLabelGenerator(config, gt_graph, coord_transform)
