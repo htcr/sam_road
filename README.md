@@ -1,4 +1,4 @@
-# Official codebase for paper "Segment Anything Model for Road Network Graph Extraction"
+# Official codebase for "Segment Anything Model for Road Network Graph Extraction"
 https://arxiv.org/pdf/2403.16051.pdf
 
 ## Installation
