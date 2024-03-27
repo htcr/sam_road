@@ -15,18 +15,18 @@ You need the following:
 
 ### SAM Preparation
 Download the ViT-B checkpoint from the official SAM directory. Put it under:
--sam_road
---sam_ckpts
----sam_vit_b_01ec64.pth
+-sam_road  
+--sam_ckpts  
+---sam_vit_b_01ec64.pth  
 
 ### Data Preparation
 Refer to the instructions in the RNGDet++ repo to download City-scale and SpaceNet datasets.
 Put them in the main directory, structure like:
--sam_road
---cityscale
----20cities
---spacenet
----RGB_1.0_meter
+-sam_road  
+--cityscale  
+---20cities  
+--spacenet  
+---RGB_1.0_meter  
 
 and run python generate_labes.py under both dirs.
 
@@ -51,10 +51,10 @@ Check that script for details. It runs both APLS and TOPO and stores scores to y
 
 ## Acknowledgement
 We sincerely appreciate the authors of the following codebases which made this project possible:
-- Segment Anything Model
-- RNGDet++
-- SAMed
-- Detectron2
+- Segment Anything Model  
+- RNGDet++  
+- SAMed  
+- Detectron2  
 
 ## TODO List
 - [x] Basic instructions
