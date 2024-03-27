@@ -14,14 +14,14 @@ You need the following:
 ## Getting Started
 
 ### SAM Preparation
-Download the ViT-B checkpoint from the official SAM directory. Put it under:
+Download the ViT-B checkpoint from the official SAM directory. Put it under:  
 -sam_road  
 --sam_ckpts  
 ---sam_vit_b_01ec64.pth  
 
 ### Data Preparation
 Refer to the instructions in the RNGDet++ repo to download City-scale and SpaceNet datasets.
-Put them in the main directory, structure like:
+Put them in the main directory, structure like:  
 -sam_road  
 --cityscale  
 ---20cities  
@@ -31,21 +31,21 @@ Put them in the main directory, structure like:
 and run python generate_labes.py under both dirs.
 
 ### Training
-City-scale dataset:
-python train.py --config=config/toponet_vitb_512_cityscale.yaml
+City-scale dataset:  
+python train.py --config=config/toponet_vitb_512_cityscale.yaml  
 
-SpaceNet dataset:
-python train.py --config=config/toponet_vitb_256_spacenet.yaml
+SpaceNet dataset:  
+python train.py --config=config/toponet_vitb_256_spacenet.yaml  
 
 You can find the checkpoints under lightning_logs dir.
 
 ### Inference
-python inferencer.py --config=path_to_the_same_config_for_training --checkpoint=path_to_ckpt
+python inferencer.py --config=path_to_the_same_config_for_training --checkpoint=path_to_ckpt  
 This saves the inference results and visualizations.
 
 ### Test
-Go to cityscale_metrics or spacenet_metrics, and run
-bash eval_schedule.bash
+Go to cityscale_metrics or spacenet_metrics, and run  
+bash eval_schedule.bash  
 
 Check that script for details. It runs both APLS and TOPO and stores scores to your output dir.
 
