@@ -1,6 +1,13 @@
 # Official codebase for "Segment Anything Model for Road Network Graph Extraction"
 https://arxiv.org/pdf/2403.16051.pdf
 
+## Demos
+Predicted road network graph in a large region (2km x 2km).
+![sam_road_cover](imgs/sam_road_cover.png)
+
+Predicted road network graphs and corresponding masks in dense urban with complex and irregular structures.
+![sam_road_mask_and_graph](imgs/sam_road_mask_and_graph.png)
+
 ## Installation
 You need the following:
 - an Nvidia GPU with latest CUDA and driver.
@@ -49,6 +56,16 @@ bash eval_schedule.bash
 
 Check that script for details. It runs both APLS and TOPO and stores scores to your output dir.
 
+## Citation
+```
+@article{hetang2024segment,
+  title={Segment Anything Model for Road Network Graph Extraction},
+  author={Hetang, Congrui and Xue, Haoru and Le, Cindy and Yue, Tianwei and Wang, Wenping and He, Yihui},
+  journal={arXiv preprint arXiv:2403.16051},
+  year={2024}
+}
+```
+
 ## Acknowledgement
 We sincerely appreciate the authors of the following codebases which made this project possible:
 - Segment Anything Model  
@@ -60,7 +77,7 @@ We sincerely appreciate the authors of the following codebases which made this p
 - [x] Basic instructions
 - [x] Organize configs
 - [ ] Add dependency list
-- [ ] Add demos
+- [x] Add demos
 - [ ] Add trained checkpoints
 
 
