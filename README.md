@@ -1,4 +1,4 @@
-# Official codebase for "Segment Anything Model for Road Network Graph Extraction"
+# Official codebase for "Segment Anything Model for Road Network Graph Extraction", CVPRW 2024
 https://arxiv.org/pdf/2403.16051.pdf
 
 The paper has been accepted by IEEE/CVF Computer Vision and Pattern Recognition Conference (CVPR) 2024, 2nd Workshop on Scene Graphs and Graph Representation Learning.
