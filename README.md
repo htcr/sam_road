@@ -58,6 +58,9 @@ bash eval_schedule.bash
 
 Check that script for details. It runs both APLS and TOPO and stores scores to your output dir.
 
+## Our Checkpoints
+[congrui/sam_road](https://huggingface.co/congrui/sam_road)
+
 ## Citation
 ```
 @article{hetang2024segment,
