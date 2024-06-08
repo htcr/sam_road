@@ -29,13 +29,22 @@ Download the ViT-B checkpoint from the official SAM directory. Put it under:
 ---sam_vit_b_01ec64.pth  
 
 ### Data Preparation
-Refer to the instructions in the RNGDet++ repo to download City-scale and SpaceNet datasets.
+Refer to the instructions in the RNGDet++ repo (https://github.com/TonyXuQAQ/RNGDetPlusPlus) to download City-scale and SpaceNet datasets.
 Put them in the main directory, structure like:  
 -sam_road  
 --cityscale  
 ---20cities  
 --spacenet  
 ---RGB_1.0_meter  
+
+Download links copied from https://github.com/TonyXuQAQ/RNGDetPlusPlus
+#### SpaceNet
+gdown https://drive.google.com/uc?id=1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W
+if you cannot download this by script, download it manually at https://drive.google.com/file/d/1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W/view?usp=share_link
+#### CityScale
+gdown https://drive.google.com/uc?id=1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H
+if you cannot download this by script, download it manually at https://drive.google.com/file/d/1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H/view?usp=share_link
+
 
 and run python generate_labes.py under both dirs.
 
