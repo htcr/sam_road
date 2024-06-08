@@ -39,14 +39,11 @@ Put them in the main directory, structure like:
 
 Download links copied from https://github.com/TonyXuQAQ/RNGDetPlusPlus
 #### SpaceNet
-gdown https://drive.google.com/uc?id=1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W
-if you cannot download this by script, download it manually at https://drive.google.com/file/d/1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W/view?usp=share_link
+https://drive.google.com/uc?id=1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W
 #### CityScale
-gdown https://drive.google.com/uc?id=1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H
-if you cannot download this by script, download it manually at https://drive.google.com/file/d/1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H/view?usp=share_link
+https://drive.google.com/uc?id=1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H
 
-
-and run python generate_labes.py under both dirs.
+Then, run "python generate_labes.py" under both dirs.
 
 ### Training
 City-scale dataset:  
