@@ -3,6 +3,8 @@ https://arxiv.org/pdf/2403.16051.pdf
 
 The paper has been accepted by IEEE/CVF Computer Vision and Pattern Recognition Conference (CVPR) 2024, 2nd Workshop on Scene Graphs and Graph Representation Learning.
 
+[Received the best paper award of the workshop](https://sites.google.com/corp/view/sg2rl/). Thanks the organizers for the recognition!!
+
 ## Demos
 Predicted road network graph in a large region (2km x 2km).
 ![sam_road_cover](imgs/sam_road_cover.png)
