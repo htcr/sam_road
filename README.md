@@ -1,7 +1,7 @@
 # Official codebase for "Segment Anything Model for Road Network Graph Extraction", CVPRW 2024
 https://arxiv.org/pdf/2403.16051.pdf
 
-The paper has been accepted by IEEE/CVF Computer Vision and Pattern Recognition Conference (CVPR) 2024, 2nd Workshop on Scene Graphs and Graph Representation Learning.
+[The paper](https://openaccess.thecvf.com/content/CVPR2024W/SG2RL/papers/Hetang_Segment_Anything_Model_for_Road_Network_Graph_Extraction_CVPRW_2024_paper.pdf) has been accepted by IEEE/CVF Computer Vision and Pattern Recognition Conference (CVPR) 2024, 2nd Workshop on Scene Graphs and Graph Representation Learning.
 
 [Received the best paper award of the workshop](https://sites.google.com/corp/view/sg2rl/). Big thanks to the organizers for the recognition!!
 
