@@ -21,7 +21,9 @@ import wandb
 import pprint
 import torchvision
 
-import vitdet
+# Only needed for the ablation experiment of using a ViT-B model without SA-1B pre-training.
+# It depends on detectron2 library. Not super important. 
+# import vitdet
 
 
 class BilinearSampler(nn.Module):
@@ -228,9 +230,16 @@ class SAMRoad(pl.LightningModule):
         self.register_buffer("pixel_std", torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1), False)
 
         if self.config.NO_SAM:
+            # Only needed for the ablation experiment of using a ViT-B model without SA-1B pre-training.
+            # It depends on detectron2 library. Not super important. 
             ### im1k + mae pre-trained vitb
-            self.image_encoder = vitdet.VITBEncoder(image_size=image_size, output_feature_dim=prompt_embed_dim)
-            self.matched_param_names = self.image_encoder.matched_param_names
+            # self.image_encoder = vitdet.VITBEncoder(image_size=image_size, output_feature_dim=prompt_embed_dim)
+            # self.matched_param_names = self.image_encoder.matched_param_names
+            raise NotImplementedError((
+                "This ablation experiment depends on detectron2, "
+                "which is a bit messy and is not super important, "
+                "so not including in the release. "
+                "If you are interested, feel free to uncomment."))
         else:
             ### SAM vitb
             self.image_encoder = ImageEncoderViT(
