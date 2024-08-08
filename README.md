@@ -42,8 +42,11 @@ Put them in the main directory, structure like:
 Download links copied from https://github.com/TonyXuQAQ/RNGDetPlusPlus
 #### SpaceNet
 https://drive.google.com/uc?id=1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W
+The data_split.json is copied from the dataset.json in this folder.
+
 #### CityScale
 https://drive.google.com/uc?id=1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H
+Find the 20cities folder under this folder.
 
 Then, run "python generate_labes.py" under both dirs.
 
