@@ -42,10 +42,12 @@ Put them in the main directory, structure like:
 Download links copied from https://github.com/TonyXuQAQ/RNGDetPlusPlus
 #### SpaceNet
 https://drive.google.com/uc?id=1FiZVkEEEVir_iUJpEH5NQunrtlG0Ff1W
+
 The data_split.json is copied from the dataset.json in this folder.
 
 #### CityScale
 https://drive.google.com/uc?id=1R8sI1RmFe3rUfWMQaOfsYlBDHpQxFH-H
+
 Find the 20cities folder under this folder.
 
 Then, run "python generate_labes.py" under both dirs.
@@ -62,6 +64,16 @@ You can find the checkpoints under lightning_logs dir.
 ### Inference
 python inferencer.py --config=path_to_the_same_config_for_training --checkpoint=path_to_ckpt  
 This saves the inference results and visualizations.
+
+Inferencing with our checkpoints:
+
+Cityscale:
+
+python inferencer.py --config=config/toponet_vitb_512_cityscale.yaml --checkpoint=/path_to/cityscale_vitb_512_e10.ckpt
+
+Spacenet:
+
+python inferencer.py --config=config/toponet_vitb_256_spacenet.yaml --checkpoint=/path_to/spacenet_vitb_256_e10.ckpt
 
 ### Test
 Go to cityscale_metrics or spacenet_metrics, and run  
