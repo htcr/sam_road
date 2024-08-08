@@ -120,7 +120,7 @@ def infer_one_img(net, img, config):
     ## Extract sample points from masks
     graph_points = graph_extraction.extract_graph_points(fused_keypoint_mask, fused_road_mask, config)
     if graph_points.shape[0] == 0:
-        return graph_points, np.zeros((0, 2), dtype=np.int32)
+        return graph_points, np.zeros((0, 2), dtype=np.int32), fused_keypoint_mask, fused_road_mask
 
     # for box query
     graph_rtree = rtree.index.Index()
