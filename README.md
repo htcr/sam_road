@@ -104,9 +104,9 @@ We sincerely appreciate the authors of the following codebases which made this p
 ## TODO List
 - [x] Basic instructions
 - [x] Organize configs
-- [ ] Add dependency list
+- [x] Add dependency list
 - [x] Add demos
-- [ ] Add trained checkpoints
+- [x] Add trained checkpoints
 
 
 
