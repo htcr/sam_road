@@ -4,11 +4,11 @@ SAM-Road vs P2CNet per-tile visualization panels.
 
 每个 test tile 输出一张 3x4 大图：
   Row 1: Inputs / GT
-    Satellite | Partial prior | Trajectory | GT graph
-  Row 2: P2CNet
-    P2CNet mask | P2CNet mask overlay | P2CNet graph | P2CNet graph overlay
-  Row 3: SAM-Road family
-    SAMRoad extraction | Completion no prior | Completion RN-only | Completion RN+Traj
+    Satellite | Partial prior (graph) | Trajectory (灰阶) | GT graph
+  Row 2: Masks & overlay
+    Partial mask (二值) | P2CNet mask (二值) | P2CNet mask overlay | P2CNet graph overlay
+  Row 3: SAM-Road family (末列为重点对比项)
+    SAMRoad extraction | Completion no prior | Completion RN+Traj | Completion RN-only
 
 默认路径针对当前 didi_xian 0628 实验，可通过 CLI 覆盖。
 
@@ -136,6 +136,7 @@ def overlay_mask(rgb: Optional[np.ndarray], mask: Optional[np.ndarray], size: in
 
 
 def traj_overlay(rgb: Optional[np.ndarray], traj: Optional[np.ndarray], size: int) -> np.ndarray:
+    """Trajectory as grayscale intensity overlay (brighter = denser trajectory), no colormap."""
     base = ensure_rgb(rgb, size, 'Missing sat')
     if traj is None:
         return base
@@ -144,11 +145,11 @@ def traj_overlay(rgb: Optional[np.ndarray], traj: Optional[np.ndarray], size: in
         norm = cv2.normalize(t, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     else:
         norm = t.astype(np.uint8)
-    heat = cv2.applyColorMap(norm, cv2.COLORMAP_TURBO)
-    heat = cv2.cvtColor(heat, cv2.COLOR_BGR2RGB)
     mask = norm > 0
     out = base.copy()
-    out[mask] = cv2.addWeighted(heat, 0.60, base, 0.40, 0)[mask]
+    # blend white by trajectory intensity: denser traj -> brighter overlay on satellite
+    gray3 = cv2.cvtColor(norm, cv2.COLOR_GRAY2RGB)
+    out[mask] = cv2.addWeighted(gray3, 0.60, base, 0.40, 0)[mask]
     return out
 
 
@@ -182,10 +183,6 @@ def draw_graph(rgb: Optional[np.ndarray], adj: Dict, size: int,
         p = scale_pt(node)
         cv2.circle(img, p, node_radius, node_color, -1, cv2.LINE_AA)
     return img
-
-
-def graph_on_blank(adj: Dict, size: int) -> np.ndarray:
-    return draw_graph(np.full((400, 400, 3), 245, dtype=np.uint8), adj, size)
 
 
 def make_grid(panels: List[Tuple[str, np.ndarray]], cols: int, gap: int = 8) -> np.ndarray:
@@ -231,9 +228,10 @@ def panel_for_id(tile_id: str, args, idx_map: Dict[str, int]) -> Optional[np.nda
     traj = read_mask(dataset_root / f'region_{tile_id}_traj.png')
     if traj is None:
         traj = read_mask(dataset_root / f'region_{tile_id}_active.png')
-    partial = read_mask(dataset_root / 'partial_component' / f'region_{tile_id}_refine_gt_graph_partial.png')
-    if partial is None:
-        partial = read_mask(dataset_root / f'region_{tile_id}_refine_gt_graph_partial.png')
+    # partial as graph pickle (same adj-dict format as GT) for Row1 graph panel
+    partial_graph = load_graph(dataset_root / 'partial_component' / f'region_{tile_id}_refine_gt_graph_partial.p')
+    # partial as binary mask png for Row2 mask panel
+    partial_mask = read_mask(dataset_root / 'partial_component' / f'region_{tile_id}_refine_gt_graph_partial.png')
 
     gt_graph = load_graph(dataset_root / f'region_{tile_id}_graph_gt.pickle')
 
@@ -248,17 +246,17 @@ def panel_for_id(tile_id: str, args, idx_map: Dict[str, int]) -> Optional[np.nda
 
     panels = [
         ('Satellite', ensure_rgb(sat, size)),
-        ('Partial prior', overlay_mask(sat, partial, size, CYAN, 0.45)),
+        ('Partial prior', draw_graph(sat, partial_graph, size, GREEN, CYAN)),
         ('Trajectory', traj_overlay(sat, traj, size)),
         ('GT graph', draw_graph(sat, gt_graph, size, GREEN, CYAN)),
+        ('Partial mask', mask_as_binary(partial_mask, size)),
         ('P2CNet mask', mask_as_binary(p2c_mask, size)),
         ('P2CNet mask overlay', overlay_mask(sat, p2c_mask, size, WHITE, 1.0)),
-        ('P2CNet graph', graph_on_blank(p2c_graph, size)),
         ('P2CNet graph overlay', draw_graph(sat, p2c_graph, size)),
         ('SAMRoad extraction', draw_graph(sat, sam_ext, size)),
         ('Completion no prior', draw_graph(sat, sam_no, size)),
-        ('Completion RN-only', draw_graph(sat, sam_rn, size)),
         ('Completion RN+Traj', draw_graph(sat, sam_full, size)),
+        ('Completion RN-only', draw_graph(sat, sam_rn, size)),
     ]
     grid = make_grid(panels, cols=4)
     header_h = 44
