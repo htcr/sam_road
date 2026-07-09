@@ -94,6 +94,23 @@ DATASET_REGISTRY = {
         "train_epoch_size": 339 * 50,   # train(302)+val(37), 与 dataset*.py __len__ 统一 *50 口径
         "need_y_flip_for_sat2graph": True,
     },
+    "porto": {
+        "image_size": 400,
+        "sample_margin": 0,
+        # Porto 与 xian 同构: (row, col) 图像坐标系, 左上原点, swap (同 cityscale/didi_xian 在 dataset.py 的实际行为)
+        "coord_origin": "top-left",
+        "coord_format": "(row,col)",
+        "coord_transform": lambda v: v[:, ::-1],
+        "rgb_pattern": "datasets/porto/2014_400/region_{}_sat.png",
+        "active_mask_pattern": "datasets/porto/2014_400/region_{}_traj.png",
+        "keypoint_mask_pattern": "datasets/porto/processed/keypoint_mask_{}.png",
+        "road_mask_pattern": "datasets/porto/processed/road_mask_{}.png",
+        "gt_graph_pattern": "datasets/porto/2014_400/region_{}_refine_gt_graph.p",
+        "gt_graph_eval_pattern": "datasets/porto/2014_400/region_{}_graph_gt.pickle",
+        "data_partition": lambda: _json_data_partition("datasets/porto/data_split.json"),
+        "train_epoch_size": 913 * 50,   # train(812)+val(101), 1015 块
+        "need_y_flip_for_sat2graph": False,
+    },
 }
 
 

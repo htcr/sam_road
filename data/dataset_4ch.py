@@ -67,6 +67,13 @@ def didi_xian_data_partition():
 didi_data_partition = didi_xian_data_partition
 
 
+def porto_data_partition():
+    """Dataset partition for Porto (2014_400). 与 didi_xian 同构, 走 data_split.json."""
+    with open('datasets/porto/data_split.json','r') as jf:
+        data_list = json.load(jf)
+    return data_list['train'], data_list['validation'], data_list['test']
+
+
 def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, patches_per_edge):
     patch_info = []
     sample_min = sample_margin
@@ -328,7 +335,7 @@ class SatMapDataset(Dataset):
         self.config = config
         self.is_train = is_train
         
-        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi_xian'}
+        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi_xian', 'porto'}
         if self.config.DATASET == 'cityscale':
             self.IMAGE_SIZE = 2048
             # TODO: SAMPLE_MARGIN here is for training, the one in config is for inference
@@ -397,6 +404,28 @@ class SatMapDataset(Dataset):
 
             train, val, test = didi_xian_data_partition()
             # DiDi Xian uses (row, col) coordinate format, same as Cityscale (NOT SpaceNet's (y_up, x))
+            coord_transform = lambda v : v[:, ::-1]
+
+        elif self.config.DATASET == 'porto':
+            self.IMAGE_SIZE = 400
+            self.SAMPLE_MARGIN = 0
+
+            rgb_pattern = 'datasets/porto/2014_400/region_{}_sat.png'
+
+            # Porto 无 active.png (xian 的 active 是错的, 已忽略). 4ch 第4通道用 traj:
+            #   训练用 region_{}_traj.png (真实 GPS 轨迹点, completion 同款)
+            #   推理用 edge_random partial (region_{}_refine_gt_graph_partial.png, keep_ratio=0.5)
+            if self.is_train:
+                active_mask_pattern = 'datasets/porto/2014_400/region_{}_traj.png'
+            else:
+                active_mask_pattern = 'datasets/porto/2014_400/region_{}_refine_gt_graph_partial.png'
+
+            keypoint_mask_pattern = 'datasets/porto/processed/keypoint_mask_{}.png'
+            road_mask_pattern = 'datasets/porto/processed/road_mask_{}.png'
+            gt_graph_pattern = 'datasets/porto/2014_400/region_{}_refine_gt_graph.p'
+
+            train, val, test = porto_data_partition()
+            # Porto 与 xian 同构: (row, col) 图像坐标系, 左上原点, swap
             coord_transform = lambda v : v[:, ::-1]
 
         train_split = train + val
@@ -477,6 +506,9 @@ class SatMapDataset(Dataset):
             elif self.config.DATASET == 'didi_xian':
                 # 339 = train(302)+val(37) tile 数 (新数据 378 块); 与 dataset.py 统一 *50 口径.
                 return 339 * 50
+            elif self.config.DATASET == 'porto':
+                # 913 = train(812)+val(101) tile 数 (1015 块)
+                return 913 * 50
         else:
             return len(self.eval_patches)
 

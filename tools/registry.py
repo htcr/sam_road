@@ -99,6 +99,13 @@ DATASETS = {
         'infer_input_graph_dir': 'datasets/cityscale/20cities',
         'infer_traj_dir': None,
     },
+    'porto': {
+        'eval_dataset_name': 'porto',
+        # completion 推理: partial 输入图目录 (region_*_refine_gt_graph_partial.p)
+        'infer_input_graph_dir': 'datasets/porto/2014_400',
+        # completion 推理: traj 目录 (region_*_traj.png, 同 input_graph_dir)
+        'infer_traj_dir': 'datasets/porto/2014_400',
+    },
     # 未来新增数据集在此添加
 }
 

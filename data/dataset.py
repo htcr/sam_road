@@ -67,6 +67,13 @@ def didi_xian_data_partition():
 didi_data_partition = didi_xian_data_partition
 
 
+def porto_data_partition():
+    """Dataset partition for Porto (2014_400). 与 didi_xian 同构, 走 data_split.json."""
+    with open('datasets/porto/data_split.json','r') as jf:
+        data_list = json.load(jf)
+    return data_list['train'], data_list['validation'], data_list['test']
+
+
 def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, patches_per_edge):
     patch_info = []
     sample_min = sample_margin
@@ -321,7 +328,7 @@ class SatMapDataset(Dataset):
     def __init__(self, config, is_train, dev_run=False):
         self.config = config
         
-        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi_xian'}
+        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi_xian', 'porto'}
         if self.config.DATASET == 'cityscale':
             self.IMAGE_SIZE = 2048
             # TODO: SAMPLE_MARGIN here is for training, the one in config is for inference
@@ -365,6 +372,20 @@ class SatMapDataset(Dataset):
             train, val, test = didi_xian_data_partition()
 
             # DiDi Xian uses (row, col) coordinate format, same as Cityscale (NOT SpaceNet's (y_up, x))
+            coord_transform = lambda v : v[:, ::-1]
+
+        elif self.config.DATASET == 'porto':
+            self.IMAGE_SIZE = 400
+            self.SAMPLE_MARGIN = 0  # same as spacenet/didi_xian
+
+            rgb_pattern = 'datasets/porto/2014_400/region_{}_sat.png'
+            keypoint_mask_pattern = 'datasets/porto/processed/keypoint_mask_{}.png'
+            road_mask_pattern = 'datasets/porto/processed/road_mask_{}.png'
+            gt_graph_pattern = 'datasets/porto/2014_400/region_{}_refine_gt_graph.p'
+
+            train, val, test = porto_data_partition()
+
+            # Porto 与 xian 同构: (row, col) 图像坐标系, 左上原点, swap 即可
             coord_transform = lambda v : v[:, ::-1]
 
         self.is_train = is_train
@@ -430,6 +451,9 @@ class SatMapDataset(Dataset):
                 # 339 = train(302)+val(37) tile 数 (新数据 378 块, NW 编号);
                 # 50 = 每 tile 期望采样 patch 数, 覆盖率 ~16x, 与 cityscale/spacenet 对齐.
                 return 339 * 50
+            elif self.config.DATASET == 'porto':
+                # 913 = train(812)+val(101) tile 数 (1015 块); 50 = 每 tile 采样 patch 数
+                return 913 * 50
         else:
             return len(self.eval_patches)
 

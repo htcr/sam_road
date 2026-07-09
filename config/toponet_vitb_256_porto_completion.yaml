@@ -1,0 +1,60 @@
+DATASET: 'porto'
+
+# IN1k + MAE only
+NO_SAM: False
+
+SAM_VERSION: 'vit_b'
+SAM_CKPT_PATH: 'sam_ckpts/sam_vit_b_01ec64.pth'
+PATCH_SIZE: 256
+BATCH_SIZE: 16           # 12GB 显存安全值 (与 spacenet completion 一致)
+DATA_WORKER_NUM: 2
+TRAIN_EPOCHS: 10
+BASE_LR: 0.001
+FREEZE_ENCODER: False
+ENCODER_LR_FACTOR: 0.1
+ENCODER_LORA: False
+FOCAL_LOSS: False
+USE_SAM_DECODER: False
+
+# TOPONET
+# sample per patch
+TOPO_SAMPLE_NUM: 128
+TOPONET_VERSION: 'normal'
+
+# Completion-specific
+GRAPH_DIM: 32                # GNN 图拓扑嵌入维度
+KEEP_RATIO_MIN: 0.2          # 动态 keep_ratio 下限
+KEEP_RATIO_MAX: 0.8          # 动态 keep_ratio 上限
+MODALITY_DROPOUT_PROB: 0.2   # 全部先验清空概率 (模型退化为 Extraction)
+
+# ---- Xian 特有: 轨迹热力图 (traj.png, 真实 GPS 轨迹) ----
+# Xian 数据集每张影像都有同名 region_X_traj.png (DelvMap 真实快递员 GPS 轨迹二值图, 已对齐),
+# dataset_completion.py 的 didi_xian 分支会自动加载到 self.active_masks 里,
+# 训练时按 TRAJ_DROPOUT_PROB 做模态 dropout/腐蚀:
+#   * 20% 概率: 全黑 (保持纯视觉生成能力)
+#   * 40% 概率: 随机块状腐蚀 (打断"轨迹→道路"捷径)
+#   * 40% 概率: 完整 traj (学习信任先验)
+TRAJ_DROPOUT_PROB: 0.2
+
+# Inference
+INFER_BATCH_SIZE: 32
+SAMPLE_MARGIN: 0
+INFER_PATCHES_PER_EDGE: 16
+
+# ============= Finding best thresholds ======
+# ======= keypoint ======
+# Best threshold 0.05888693034648895, P=0.08908652514219284 R=0.11383627355098724 F1=0.0999520793557167
+# ======= road ======
+# Best threshold 0.17902158200740814, P=0.2894055247306824 R=0.48018860816955566 F1=0.3611494302749634
+# ======= topo ======
+# Best threshold 0.5959228277206421, P=0.9538120627403259 R=0.956305205821991 F1=0.9550569653511047
+# Thresholds  (TODO: 训完后用 PR 曲线 sweep 出更优阈值, 当前先沿用 spacenet 默认)
+ITSC_THRESHOLD: 0.059
+ROAD_THRESHOLD: 0.179
+TOPO_THRESHOLD: 0.596
+
+# NMS / Neighbor
+ITSC_NMS_RADIUS: 8
+ROAD_NMS_RADIUS: 16
+NEIGHBOR_RADIUS: 64
+MAX_NEIGHBOR_QUERIES: 16

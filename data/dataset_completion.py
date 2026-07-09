@@ -59,6 +59,13 @@ def didi_data_partition():
     return data_list['train'], data_list['validation'], data_list['test']
 
 
+def porto_data_partition():
+    """Porto (2014_400) 数据划分. 与 didi_xian 同构."""
+    with open('datasets/porto/data_split.json', 'r') as jf:
+        data_list = json.load(jf)
+    return data_list['train'], data_list['validation'], data_list['test']
+
+
 def get_patch_info_one_img(image_index, image_size, sample_margin, patch_size, patches_per_edge):
     patch_info = []
     sample_min = sample_margin
@@ -562,7 +569,7 @@ class SatMapCompletionDataset(Dataset):
         if self.use_traj == {} or self.use_traj is None:
             self.use_traj = True
 
-        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi', 'didi_xian'}
+        assert self.config.DATASET in {'cityscale', 'spacenet', 'didi', 'didi_xian', 'porto'}
 
         if self.config.DATASET == 'cityscale':
             self.IMAGE_SIZE = 2048
@@ -602,6 +609,19 @@ class SatMapCompletionDataset(Dataset):
             active_mask_pattern = 'datasets/didi/xian/2019_400/region_{}_traj.png' if self.use_traj else None
             train, val, test = didi_data_partition()
             # DiDi Xian uses (row, col) coordinate format, same as Cityscale (NOT SpaceNet's (y_up, x))
+            coord_transform = lambda v: v[:, ::-1]
+
+        elif self.config.DATASET == 'porto':
+            self.IMAGE_SIZE = 400
+            self.SAMPLE_MARGIN = 0
+            rgb_pattern = 'datasets/porto/2014_400/region_{}_sat.png'
+            keypoint_mask_pattern = 'datasets/porto/processed/keypoint_mask_{}.png'
+            road_mask_pattern = 'datasets/porto/processed/road_mask_{}.png'
+            gt_graph_pattern = 'datasets/porto/2014_400/region_{}_refine_gt_graph.p'
+            # Porto traj: 真实 GPS 轨迹点 (closed 版, 已对齐黑边). USE_TRAJ=False 时不加载
+            active_mask_pattern = 'datasets/porto/2014_400/region_{}_traj.png' if self.use_traj else None
+            train, val, test = porto_data_partition()
+            # Porto 与 xian 同构: (row, col) 图像坐标系, 左上原点, swap
             coord_transform = lambda v: v[:, ::-1]
 
         train_split = train + val
@@ -686,6 +706,9 @@ class SatMapCompletionDataset(Dataset):
                 # 50 = 每 tile 期望采样 patch 数, 覆盖率 ~16x, 与
                 # cityscale (16.3x) / spacenet (16.0x) 对齐, 避免 epoch 过长。
                 return 339 * 50
+            elif self.config.DATASET == 'porto':
+                # 913 = train(812)+val(101) tile 数 (1015 块)
+                return 913 * 50
         else:
             return len(self.eval_patches)
 
