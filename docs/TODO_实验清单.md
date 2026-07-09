@@ -117,3 +117,18 @@ python test_deeplabv3plus_mix_mp_sat_gsam_osm.py
 1. **训练侧采样统一**:实验1/2 若要训练也用按连通块保,需先改 `data/dataset_completion.py` 的 `_create_known_graph`。开销已验证可忽略(每 epoch +0.3-2s)。不改则训练用旧策略、推理用新策略,有 train/infer gap。
 2. **extraction 不用重跑**:extraction 不碰 partial,现有结果(extraction spacenet 0.7012 / didi_xian 0.4288)仍有效。
 3. **P2CNet 转换脚本是阻塞项**:实验3 必须先完成 3a 的转换脚本,才能跑 3b。
+
+---
+
+## 待决策:是否重构 didi/xian GT(对齐 Porto 过滤标准)
+
+> 背景:Porto 数据集(2026-07-09)用 `--keep-highway-only` 重构,GT 只保留车行道(排除行人路/非路 way)。
+> xian 现状是 PBF 预过滤(无非路 way)但 OSMHandler 不过滤,**GT 含 7.3% 纯行人路**(footway/pedestrian/steps/path/cycleway)+ construction。
+> 详见 `docs/xian数据集OSM使用与过滤分析.md`。
+
+- [ ] **决策:是否对 xian 加 `--keep-highway-only` 重构 GT**,排除行人路 + construction,与 Porto 标准统一。
+  - **利**:xian/Porto GT 标准统一(只车行道),消除行人路噪声,跨数据集对比更公平。
+  - **弊**:xian 所有已训模型(extraction/completion/4ch)需重训;历史 metrics(extraction didi_xian 0.4288、completion APLS 0.5878 等)失效不可比;投入大。
+  - **触发条件**:若未来 xian/Porto 跨数据集对比实验发现行人路噪声影响结论,或需统一基准时再重构。
+  - **若重构**:对 xian 跑 `download_use_osm.py --keep-highway-only`(xian PBF 已无非路 way,只需排除行人路)→ 黑边裁剪 → mask → partial 重建。命令同 `docs/porto数据集制备与使用.md` 2.5 节,config 换 `xian.json`,bbox 换 xian 范围 lat[34.206385,34.279658] lon[108.917423,108.99286]。
+  - **当前结论**:暂不重构(xian 已训大量模型,现状可接受;Porto 走新标准即可)。

@@ -65,18 +65,19 @@ RGB + road_feature_map [B,4,H,W]
 
 ## 数据集与坐标系
 
-三个数据集的 **pickle 坐标原点不同**，这是最容易踩坑的地方：
+四个数据集的 **pickle 坐标原点不同**，这是最容易踩坑的地方：
 
-|  | CityScale | SpaceNet | Xian (DiDi) |
-|---|---|---|---|
-| **图片尺寸** | 2048×2048 | 400×400 | 400×400 |
-| **pickle 原点** | 左上（图像坐标） | 左下（数学坐标） | 左上（图像坐标） |
-| **coord_transform** | `v[:, ::-1]`（swap） | `np.stack([v[:,1], SIZE-v[:,0]])`（swap+flip-y） | `v[:, ::-1]`（swap） |
-| **样本数** | 180 | 2549 | 378 |
-| **Active mask** | ✗ | ✗ | ✓ |
-| **真实轨迹 traj** | ✗ | ✗ | ✓ (`region_{c}_traj.png`) |
+|  | CityScale | SpaceNet | Xian (DiDi) | Porto |
+|---|---|---|---|---|
+| **图片尺寸** | 2048×2048 | 400×400 | 400×400 | 400×400 |
+| **pickle 原点** | 左上（图像坐标） | 左下（数学坐标） | 左上（图像坐标） | 左上（图像坐标） |
+| **coord_transform** | `v[:, ::-1]`（swap） | `np.stack([v[:,1], SIZE-v[:,0]])`（swap+flip-y） | `v[:, ::-1]`（swap） | `v[:, ::-1]`（swap） |
+| **样本数** | 180 | 2549 | 378 | 1015 |
+| **train/val/test** | 180（手动） | 2040/127/382 | 302/37/39 | 812/101/102 |
+| **真实轨迹 traj** | ✗ | ✗ | ✓ (`region_{c}_traj.png`) | ✓ (`region_{c}_traj.png`) |
+| **partial (completion)** | ✗ | ✗ | ✓ | ✓ (edge_random + component 50/25/75) |
 
-> ⚠️ SpaceNet 的 pickle 使用数学坐标系（y 轴从下向上），需要翻转 y 轴。CityScale/Xian 使用图像坐标系（row 从上向下），只需交换。
+> ⚠️ SpaceNet 的 pickle 使用数学坐标系（y 轴从下向上），需要翻转 y 轴。CityScale/Xian/Porto 使用图像坐标系（row 从上向下），只需交换。Porto 与 Xian 坐标系完全一致，可直接复用 didi 范式。
 
 **IoU 定量验证**（变换后的 road_mask vs GT.png）：
 
@@ -86,7 +87,7 @@ RGB + road_feature_map [B,4,H,W]
 | flip-y (spacenet) | ~0.03 | **~0.62 ✅** | ~0.10 |
 | raw | ~0.03 | ~0.03 | ~0.01 |
 
-详细分析见 [数据集与坐标系分析](docs/数据集与坐标系分析.md)。
+详细分析见 [数据集与坐标系分析](docs/数据集与坐标系分析.md)。Porto 制备详见 [porto数据集制备与使用](docs/porto数据集制备与使用.md)。
 
 ---
 
@@ -96,18 +97,24 @@ RGB + road_feature_map [B,4,H,W]
 sam_road/
 ├── config/            # 训练配置 (YAML)
 ├── data/              # 数据集类 & DataLoader
-│   ├── dataset.py             # 基础: CityScale / SpaceNet / Xian
+│   ├── dataset.py             # 基础: CityScale / SpaceNet / Xian / Porto
 │   ├── dataset_4ch.py         # 4ch: + active mask 与先验增强
-│   └── dataset_completion.py  # Completion: + 已知图 & 特征图
+│   ├── dataset_completion.py  # Completion: + 已知图 & 特征图
+│   └── dataset_registry.py    # 数据集注册表 (路径/坐标变换/划分)
 ├── datasets/          # 原始数据 & generate_labels.py
 │   ├── cityscale/
 │   ├── spacenet/
-│   └── didi/xian/              # 2019_400/ (region 文件, 含 traj.png), processed/, data_split.json
+│   ├── didi/xian/             # 2019_400/ (region 文件, 含 traj.png), processed/, data_split.json
+│   └── porto/                 # 2014_400/ (1015 块, keep-highway-only 车行道), processed/, data_split.json
+├── rawdata/           # 原始素材 + 大图 (gitignore, 与 datasets/ 平级)
+│   └── porto/                # sat/road/building/traj 大图 + PBF + train.csv
 ├── tools/prepare_dataset/      # 数据制备脚本
-│   ├── download_use_osm.py     # sat+rn+active (支持 --sat_source local + NW 编号 + clip_bbox)
-│   ├── generate_traj.py        # 生成 region_{c}_traj.png (DelvMap 真实轨迹, 已对齐)
+│   ├── download_use_osm.py     # sat+rn+active (支持 --sat_source local + NW 编号 + clip_bbox + --keep-highway-only)
+│   ├── generate_traj.py        # 生成 region_{c}_traj.png (DelvMap 真实轨迹, 已对齐, 支持 --suffix)
+│   ├── generate_porto_*.py     # Porto 大图制备 (traj/building/road) + clip_pbf_bbox
+│   ├── esri_wayback.py         # Esri Wayback 历史影像下载
 │   ├── graph_ops.py / esri.py
-│   └── config/xian.json        # size=400, DelvMap 西安 bbox
+│   └── config/{xian,porto}.json  # size=400, 各城市 bbox
 ├── docs/              # 文档
 │   ├── 数据集与坐标系分析.md   # 坐标系详细分析
 │   ├── 方案B_路网补全设计.md   # 补全模型设计文档
@@ -272,8 +279,9 @@ python data/img_folder_to_json_list.py
 
 > **推荐：用 `run.py` 编排**（统一 train+infer+eval，路径自动隔离，详见 [docs/实验编排方案设计.md](docs/实验编排方案设计.md)）
 > ```bash
-> # 单个全流程
+> # 单个全流程 (extraction / completion / 4ch)
 > python run.py --task completion --dataset spacenet --gpus 0
+> python run.py --task completion --dataset porto --gpus 0      # Porto (1015 块)
 > # 四任务批量 (spacenet→GPU0, didi_xian→GPU1)
 > python run.py --batch batch.yaml --parallel
 > ```
