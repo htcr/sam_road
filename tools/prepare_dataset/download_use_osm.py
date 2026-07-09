@@ -17,18 +17,48 @@ from osgeo import ogr
 # ==========================================
 # 模式 1：PBF 解析器 (保留你的原始逻辑)
 # ==========================================
+# 车行道白名单 (与 generate_porto_delvmap_bigimgs.py 一致)。
+# 默认不启用 (保持 xian 等旧数据集兼容), Porto 用 --keep-highway-only 开启,
+# 过滤掉 building/landuse/leisure/amenity/barrier 等非路 way + 纯行人路
+# (pedestrian/footway/steps/path) + services(服务区闭合) + construction/proposed 等,
+# 保留所有汽车可通行的 highway: 主干道 + 低等级公共路 + service 内部道路 + track 农用路。
+# 依据 docs/chatgpt-osm类别分析.md 的"汽车可通行"判定。
+_KEEP_HIGHWAY = {
+    # 主干道 + 匝道
+    'motorway', 'motorway_link', 'trunk', 'trunk_link',
+    'primary', 'primary_link', 'secondary', 'secondary_link',
+    'tertiary', 'tertiary_link',
+    # 居民区/低等级公共道路
+    'residential', 'unclassified', 'road', 'living_street',
+    # 内部/服务道路 (停车场/小区/加油站内部, 汽车可通行)
+    'service',
+    # 农用/林区土路 (越野车)
+    'track',
+}
+# 闭合多边形处理: pedestrian 广场/services 服务区等若是闭合 way 会画成填充,
+# 但它们已在白名单外被排除。白名单内的 highway 偶有闭合环路 (residential 等),
+# 按 line 画即可 (build_osmmap_from_pbf 取相邻节点建边, 闭合环自然成环, 不填充)。
+
+
 class OSMHandler(osmium.SimpleHandler):
-    def __init__(self):
+    def __init__(self, keep_highway_only=False):
         super().__init__()
         self.nodes = {}      # node_id -> (lat, lon)
         self.ways = []       # list of node_id sequences
+        self.keep_highway_only = keep_highway_only
 
     def node(self, n):
         self.nodes[n.id] = (n.location.lat, n.location.lon)
 
     def way(self, w):
-        if len(w.nodes) >= 2:
-            self.ways.append([n.ref for n in w.nodes])
+        if len(w.nodes) < 2:
+            return
+        if self.keep_highway_only:
+            tags = dict(w.tags)
+            hw = tags.get('highway')
+            if hw not in _KEEP_HIGHWAY:
+                return
+        self.ways.append([n.ref for n in w.nodes])
 
 
 def build_osmmap_from_pbf(handler, bbox):
@@ -101,6 +131,11 @@ if __name__ == "__main__":
     parser.add_argument("--sat_local_extent", default="34.206385,34.279658,108.917423,108.99286,5625,6610",
                         help="本地大图的范围: lat_min,lat_max,lon_min,lon_max,img_w,img_h "
                              "(默认 DelvMap 西安 sat_img.png 范围). 仅 --sat_source=local 时生效.")
+    parser.add_argument("--resume", action="store_true",
+                        help="断点续跑: 跳过已存在 region_{c}_refine_gt_graph.p 的 region")
+    parser.add_argument("--keep-highway-only", action="store_true",
+                        help="只保留主要车行道 (residential/primary/secondary/tertiary/motorway/trunk"
+                             "及_link), 过滤 building/pedestrian 等非路 way。Porto 用, xian 不用")
     parser.add_argument("configs", nargs="+", help="Dataset JSON config files")
     args = parser.parse_args()
 
@@ -167,7 +202,9 @@ if __name__ == "__main__":
 
     # --- 1. 全局数据预加载 ---
     print(f"[INFO] Parsing Full OSM PBF file for Ground Truth: {args.osm_pbf}")
-    handler = OSMHandler()
+    handler = OSMHandler(keep_highway_only=args.keep_highway_only)
+    if args.keep_highway_only:
+        print(f"[INFO] keep_highway_only=True: 只保留主要车行道 {_KEEP_HIGHWAY}")
     handler.apply_file(args.osm_pbf, locations=True)
     
     global_shp_ways = None
@@ -234,6 +271,12 @@ if __name__ == "__main__":
                 bbox = [lat_st, lon_st, lat_ed, lon_ed]
                 zoom = 18 if abs(lat_st) < 30 else 17
 
+                # 断点续跑: 若 --resume 且该 region 的 refine_gt_graph.p 已存在, 跳过
+                # (refine 是最后一步, 存在即代表该 region 全套文件已完整生成)
+                if args.resume and os.path.isfile(f"{dataset_folder}/region_{c}_refine_gt_graph.p"):
+                    c += 1
+                    continue
+
                 # --- 3.1 截取卫星图 (Input) ---
                 if _local_sat is not None:
                     # 本地大图按经纬度 Mercator 重投影 (无需联网), BGR->RGB 后存
@@ -266,7 +309,16 @@ if __name__ == "__main__":
                     pickle.dump(nn_gt_region, f)
                 graphlib.graphVis2048Segmentation(node_neighbor_gt, [lat_st,lon_st,lat_ed,lon_ed], f"{dataset_folder}/region_{c}_gt.png", size)
 
-                nn_refine_gt, sample_points = graphlib.graphGroundTruthPreProcess(nn_gt_region)
+                # graphGroundTruthPreProcess 在路网密集区 (如 Porto) 偶发 KeyError
+                # (图迭代中节点被删后仍被引用)。崩溃时退化为用未精修的 nn_gt_region 作 refine,
+                # 损失精修质量但不中断整体流程。记录到 log 供事后排查。
+                try:
+                    nn_refine_gt, sample_points = graphlib.graphGroundTruthPreProcess(nn_gt_region)
+                except Exception as _e:
+                    print(f"[WARN] region {c} graphGroundTruthPreProcess 崩溃 ({type(_e).__name__}: {_e}), "
+                          f"退化为未精修 graph_gt")
+                    nn_refine_gt = nn_gt_region
+                    sample_points = {"parallel_road": [], "complicated_intersections": [], "overpass": []}
                 with open(f"{dataset_folder}/region_{c}_refine_gt_graph.p", "wb") as f:
                     pickle.dump(nn_refine_gt, f)
                 with open(f"{dataset_folder}/region_{c}_refine_gt_graph_samplepoints.json", "w") as f:

@@ -156,9 +156,9 @@ def render_tile_traj(big_traj, bbox, size, merc_bounds, mode):
 # ============================================================
 # QC
 # ============================================================
-def run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg):
+def run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg, suffix=""):
     """生成后 QC: 全局 extent 闸 + 抽样叠加图 + IoU/质心统计。"""
-    qc_dir = out_dir / "qc_traj"
+    qc_dir = out_dir / f"qc_traj{suffix}"
     qc_dir.mkdir(parents=True, exist_ok=True)
     img_w = big_traj.shape[1]
     img_h = big_traj.shape[0]
@@ -190,7 +190,7 @@ def run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg):
     ious = []
     print("[QC] 抽样统计 (IoU(traj, road_mask), 质心偏移px):")
     for c in sample_cs:
-        traj_path = out_dir / f"region_{c}_traj.png"
+        traj_path = out_dir / f"region_{c}_traj{suffix}.png"
         gt_path = out_dir / f"region_{c}_gt.png"
         sat_path = out_dir / f"region_{c}_sat.png"
         if not traj_path.exists():
@@ -230,7 +230,7 @@ def run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg):
     # ---- 5. 全零 tile 与取值检查 ----
     n_zero, n_badval = 0, 0
     for c, _ in regions:
-        p = out_dir / f"region_{c}_traj.png"
+        p = out_dir / f"region_{c}_traj{suffix}.png"
         if not p.exists():
             continue
         a = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
@@ -252,6 +252,9 @@ def main():
     ap.add_argument("--out-dir", required=True, help="region_*_sat.png 所在目录")
     ap.add_argument("--mode", choices=["traj", "point"], default="traj",
                     help="traj=3x3闭运算(默认,更像路网); point=仅二值化(=DelvMap trajpoint)")
+    ap.add_argument("--suffix", default="",
+                    help="输出文件名后缀: region_{c}_traj{suffix}.png (默认空=region_{c}_traj.png). "
+                         "例如 --suffix _line 生成 region_{c}_traj_line.png, 不覆盖 point 版")
     ap.add_argument("--delvmap-lat-min", type=float, default=34.206385)
     ap.add_argument("--delvmap-lat-max", type=float, default=34.279658)
     ap.add_argument("--delvmap-lon-min", type=float, default=108.917423)
@@ -302,15 +305,15 @@ def main():
         # 边缘 tile 外溢警告 (>1% 像素补黑)
         if n_clip > 0.01 * size * size:
             n_warn_clip += 1
-        cv2.imwrite(str(out_dir / f"region_{c}_traj.png"), tile)
+        cv2.imwrite(str(out_dir / f"region_{c}_traj{args.suffix}.png"), tile)
         if (idx + 1) % 50 == 0 or idx == 0:
-            print(f"[INFO] {idx+1}/{len(regions)} region_{c}_traj.png done (clip_px={n_clip})")
+            print(f"[INFO] {idx+1}/{len(regions)} region_{c}_traj{args.suffix}.png done (clip_px={n_clip})")
 
-    print(f"[INFO] 完成: {len(regions)} 个 region_{c}_traj.png 写入 {out_dir}/ (mode={args.mode})")
+    print(f"[INFO] 完成: {len(regions)} 个 region_{c}_traj{args.suffix}.png 写入 {out_dir}/ (mode={args.mode})")
     print(f"[INFO] 边缘外溢警告 tile 数: {n_warn_clip}")
 
     if args.qc:
-        run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg)
+        run_qc(regions, big_traj, merc_bounds, out_dir, size, cfg, suffix=args.suffix)
 
 
 if __name__ == "__main__":

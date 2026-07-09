@@ -11,6 +11,11 @@ datasets/didi/xian/*
 !datasets/didi/xian/generate_labels.py
 datasets/didi/chengdu/*
 
+# Porto 数据集 (产物 + 原始素材)
+datasets/porto/*
+!datasets/porto/.gitkeep
+rawdata/
+
 # Model checkpoints and outputs
 checkpoints
 save

@@ -30,9 +30,13 @@ from urllib.error import URLError, HTTPError
 
 import esri_wayback as ew
 
-# Porto 市中心范围 (与 config/porto.json 保持一致)
-PORTO_LAT_MIN, PORTO_LAT_MAX = 41.14, 41.20
-PORTO_LON_MIN, PORTO_LON_MAX = -8.69, -8.55
+# Porto 范围 (与 config/porto.json 保持一致)。
+# 宽范围 bbox = train.csv 轨迹 1%-99% 分位, 35x29=1015 tiles (size=400m)。
+# 之前用 41.14~41.20 只覆盖中心测试小块, 现改为完整数据集范围。
+PORTO_LAT_MIN, PORTO_LAT_MAX = 41.1125, 41.2385
+PORTO_LON_MIN, PORTO_LON_MAX = -8.6875, -8.5495
+# 默认 release: 3026 = 2014-07-02 vintage (Porto taxi traj 2013-07-01~2014-06-30, 同年)
+PORTO_DEFAULT_RELEASE = 3026
 
 WAYBACK_BASE = "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer"
 
@@ -156,7 +160,7 @@ def fetch_porto(release, zoom, out_path, box_meters=500):
     """用 esri_wayback.GetMapInRect 拉 Porto 中心一小块影像, 存 PNG.
 
     box_meters: 中心点周围边长 (米), 默认 500m (zoom17 下约 2x2 瓦片, ~9 个 tile).
-    测试用, 避免下整个 Porto 市区 (1560 个瓦片). 完整数据集请用 download_use_osm.py.
+    测试用, 避免下整个 Porto 市区 (1560 个瓦片). 完整数据集请用 --full-bbox.
     """
     import math
     print(f"\n下载 Porto 影像: release={release} zoom={zoom} box={box_meters}m -> {out_path}")
@@ -175,28 +179,70 @@ def fetch_porto(release, zoom, out_path, box_meters=500):
     print(f"✓ 存图: {out_path}  shape={img.shape}")
 
 
+def fetch_porto_full(release, zoom, out_path,
+                     lat_min=PORTO_LAT_MIN, lat_max=PORTO_LAT_MAX,
+                     lon_min=PORTO_LON_MIN, lon_max=PORTO_LON_MAX):
+    """下载整个 Porto bbox 的 Wayback 影像, 切边到精确 bbox (不 resize), 存 PNG。
+
+    复用 esri_wayback.GetMapInRect: ESRI z17/z18 瓦片(Web Mercator)拼接后,
+    按 bbox 边界裁掉外溢像素 (img[y1:y2,x1:x2]), 输出精确等于 bbox 的尺寸,
+    保持原始瓦片分辨率 (z17≈0.897m/px, z18≈0.449m/px), 无任何重采样。
+    产物可直接作为 generate_porto_traj.py --sat 的输入 (traj 会读其尺寸同画布对齐)。
+
+    Porto 宽范围 bbox (lat[41.1125,41.2385] lon[-8.6875,-8.5495]):
+      z17: 52x61=3172 tiles -> 12862x15603
+      z18: 102x122=12444 tiles -> 25725x31206
+    z18 瓦片量大(1.2万), 下载耗时较长; z17 通常够用且快 4 倍。
+
+    release: Wayback release 号 (int)。3026 = 2014-07-02 vintage
+      (Porto taxi traj 是 2013-07-01~2014-06-30, 用此 release 影像同年)。
+      None -> 最新 World_Imagery。
+    zoom: 瓦片 zoom (Porto lat~41, 默认 17)。
+    out_path: 输出 PNG 路径 (RGB, 可被 cv2.imread IMREAD_COLOR 读取)。
+    """
+    print(f"\n下载 Porto 完整 bbox 影像: release={release} zoom={zoom}")
+    print(f"  bbox: lat[{lat_min},{lat_max}] lon[{lon_min},{lon_max}]")
+    rel_tag = "latest" if release is None else f"r{release}"
+    folder = f"cache_porto/{rel_tag}"
+    img, ok = ew.GetMapInRect(lat_min, lon_min, lat_max, lon_max,
+                              folder=folder, zoom=zoom, release=release)
+    if not ok:
+        print("[WARN] 部分瓦片下载失败, 影像对应位置为黑边; "
+              "重跑会用 cache_porto/ 缓存补洞, 或换 --release。")
+    from PIL import Image
+    Image.fromarray(img.astype("uint8")).save(out_path)
+    print(f"✓ 存图: {out_path}  shape={img.shape} (H,W,C), 切边到精确 bbox, 未 resize)")
+    return img.shape
+
+
 def main():
-    p = argparse.ArgumentParser(description="Porto rsimg 获取测试 (Esri Wayback 2014 影像验证)")
+    p = argparse.ArgumentParser(description="Porto rsimg 获取 (Esri Wayback 2014 影像, 对齐 Porto 轨迹)")
     p.add_argument("--list-releases", action="store_true", help="列出 Wayback 所有可用 release 及日期")
     p.add_argument("--year", type=int, default=None, help="目标年份 (如 2014), list-releases 高亮 / fetch-year 筛选")
     p.add_argument("--fetch-year", type=int, default=None, help="自动找该年份的 release 拉 Porto 影像")
     p.add_argument("--release", type=int, default=None, help="用指定 release 号直接拉")
     p.add_argument("--latest", action="store_true", help="拉最新影像 (release=None, 作对照)")
-    p.add_argument("--zoom", type=int, default=17, help="瓦片 zoom (Porto 纬度~41, 默认17)")
+    p.add_argument("--full-bbox", action="store_true",
+                   help="下整个 Porto bbox (切边不resize, z17->12862x15603); 不加则只下中心测试小块")
+    p.add_argument("--zoom", type=int, default=17, help="瓦片 zoom (Porto 纬度~41, 默认17; z18清晰4倍但瓦片1.2万)")
     p.add_argument("--box-meters", type=int, default=500,
-                   help="中心点周围边长(米), 默认500m (测试用, 避免下整个Porto 1560个瓦片). 完整数据集用 download_use_osm.py")
+                   help="中心点周围边长(米), 仅 --full-bbox 未指定时生效. 默认500m (测试用)")
     p.add_argument("--out", default="porto_test.png", help="输出 PNG 路径")
     args = p.parse_args()
 
-    if not (args.list_releases or args.fetch_year or args.release is not None or args.latest):
+    if not (args.list_releases or args.fetch_year or args.release is not None or args.latest or args.full_bbox):
         p.print_help()
-        print("\n至少指定一个: --list-releases / --fetch-year <year> / --release <num> / --latest")
+        print("\n至少指定一个: --list-releases / --fetch-year <year> / --release <num> / --latest / --full-bbox")
         sys.exit(1)
 
     if args.list_releases:
         list_releases(year=args.year)
 
-    if args.fetch_year:
+    # release 解析优先级: --release > --fetch-year > --latest > 默认 3026 (仅 --full-bbox 时)
+    rel = None
+    if args.release is not None:
+        rel = args.release
+    elif args.fetch_year:
         rels = list_releases(year=args.fetch_year)
         cand = [r for r in rels
                 if (r["date"] and str(args.fetch_year) in r["date"])
@@ -204,16 +250,18 @@ def main():
         if not cand:
             print(f"[ERROR] 未找到 {args.fetch_year} 年的 release, 无法 fetch。请用 --release <num> 手动指定。")
             sys.exit(1)
-        # 取第一个匹配的
         rel = cand[0]["release"]
         print(f"\n使用 release={rel} 拉取 {args.fetch_year} 年影像")
+    elif args.latest:
+        rel = None
+    elif args.full_bbox:
+        rel = PORTO_DEFAULT_RELEASE
+        print(f"\n--full-bbox 未指定 release, 用默认 {rel} (2014-07-02)")
+
+    if args.full_bbox:
+        fetch_porto_full(rel, args.zoom, args.out)
+    elif rel is not None or args.latest:
         fetch_porto(rel, args.zoom, args.out, box_meters=args.box_meters)
-
-    if args.release is not None:
-        fetch_porto(args.release, args.zoom, args.out, box_meters=args.box_meters)
-
-    if args.latest:
-        fetch_porto(None, args.zoom, args.out, box_meters=args.box_meters)
 
 
 if __name__ == "__main__":

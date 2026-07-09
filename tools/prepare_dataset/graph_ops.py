@@ -536,6 +536,10 @@ def apply_adjustment(graph, adjustment):
 
 			if new_k not in current_graph:
 
+				# k 可能在前次 adjustment 迭代中被 del (不同 adjustment 条目涉及同一节点)
+				if k not in current_graph:
+					continue
+
 				neighbors = list(current_graph[k])
 
 				del current_graph[k]
@@ -543,6 +547,10 @@ def apply_adjustment(graph, adjustment):
 				current_graph[new_k] = neighbors
 
 				for nei in neighbors:
+					# nei 可能在本次/前次 adjustment 中已被 del, 跳过避免 KeyError
+					# (Porto 路网密集, 邻居也被调整的情况比 xian 常见)
+					if nei not in current_graph:
+						continue
 					new_nei = []
 
 					for n in current_graph[nei]:
@@ -596,6 +604,9 @@ def apply_adjustment_delete_closeby_nodes(graph, adjustment):
 			gap = sum(ds[0:4]) / 2.0
 
 			# delete the node and push its two neighbors closer ...
+			# k / nei 可能已被前次 adjustment 删除 (Porto 路网密集), 全程加存在性检查
+			if k not in graph:
+				continue
 			if gap < 12 and len(graph[k]) == 2:
 				nei1 = graph[k][0]
 				nei2 = graph[k][1]
@@ -603,21 +614,23 @@ def apply_adjustment_delete_closeby_nodes(graph, adjustment):
 				del graph[k]
 				print("delete a node", k)
 
-				for i in range(len(graph[nei1])):
-					if graph[nei1][i] == k:
-						graph[nei1][i] = nei2
+				if nei1 in graph:
+					for i in range(len(graph[nei1])):
+						if graph[nei1][i] == k:
+							graph[nei1][i] = nei2
 
-				for i in range(len(graph[nei2])):
-					if graph[nei2][i] == k:
-						graph[nei2][i] = nei1
+				if nei2 in graph:
+					for i in range(len(graph[nei2])):
+						if graph[nei2][i] == k:
+							graph[nei2][i] = nei1
 
-				# move nei1/nei2 closer?
-				if nei1 not in adjustment:
+				# move nei1/nei2 closer? (k 已删, neighbors_norm 内部会安全处理)
+				if nei1 in graph and nei1 not in adjustment:
 					vec = neighbors_norm(graph, k, nei1)
 					new_nei1 = (nei1[0] + vec[0] * 5.0, nei1[1] + vec[1] * 5.0)
 					graph = graph_move_node(graph, nei1, new_nei1)
 
-				if nei2 not in adjustment:
+				if nei2 in graph and nei2 not in adjustment:
 					vec = neighbors_norm(graph, k, nei2)
 					new_nei2 = (nei2[0] + vec[0] * 5.0, nei2[1] + vec[1] * 5.0)
 					graph = graph_move_node(graph, nei2, new_nei2)
